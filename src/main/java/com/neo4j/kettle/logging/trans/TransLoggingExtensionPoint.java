@@ -9,19 +9,16 @@ import org.pentaho.di.core.Result;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.extension.ExtensionPoint;
 import org.pentaho.di.core.extension.ExtensionPointInterface;
+import org.pentaho.di.core.logging.KettleLogStore;
 import org.pentaho.di.core.logging.LogChannelInterface;
-import org.pentaho.di.core.reflection.StringSearchResult;
-import org.pentaho.di.core.reflection.StringSearcher;
+import org.pentaho.di.core.logging.LoggingRegistry;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransAdapter;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.StepMeta;
-import org.pentaho.di.trans.step.StepMetaInterface;
 
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @ExtensionPoint(
@@ -43,13 +40,12 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
-
     try {
 
       // Which connection are we logging to?
       //
       final NeoConnection connection = LoggingCore.getConnection( trans.getMetaStore(), trans );
-      log.logBasic("Logging information to Neo4j connection : "+connection.getName());
+      log.logDetailed("Logging information to Neo4j connection : "+connection.getName());
 
       logTransformationMetadata( log, connection, trans );
       logStartOfTransformation( log, connection, trans );
@@ -75,7 +71,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
   }
 
   private void logTransformationMetadata( LogChannelInterface log, NeoConnection connection, Trans trans) throws KettleException {
-    log.logBasic("Logging transformation metadata to Neo4j connection : "+connection.getName());
+    log.logDetailed("Logging transformation metadata to Neo4j connection : "+connection.getName());
 
     TransMeta transMeta = trans.getTransMeta();
     Driver driver = null;
@@ -139,7 +135,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
         //
         stepCypher.append("MERGE (step)-[rel:STEP_OF_TRANSFORMATION]->(trans) ");
 
-        log.logBasic("Step '"+stepMeta.getName()+"' cypher : "+stepCypher);
+        log.logDetailed("Step '"+stepMeta.getName()+"' cypher : "+stepCypher);
 
         // run it
         //
@@ -165,7 +161,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
   }
 
   private void logStartOfTransformation( LogChannelInterface log, NeoConnection connection, Trans trans ) throws KettleException {
-    log.logBasic("Logging execution start of transformation to Neo4j connection : "+connection.getName());
+    log.logDetailed("Logging execution start of transformation to Neo4j connection : "+connection.getName());
 
     TransMeta transMeta = trans.getTransMeta();
     Driver driver = null;
@@ -213,7 +209,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
   }
 
   private void logEndOfTransformation( LogChannelInterface log, NeoConnection connection, Trans trans ) throws KettleException {
-    log.logBasic("Logging execution end of transformation to Neo4j connection : "+connection.getName());
+    log.logDetailed("Logging execution end of transformation to Neo4j connection : "+connection.getName());
 
     TransMeta transMeta = trans.getTransMeta();
     Driver driver = null;
@@ -229,6 +225,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       //
       LogChannelInterface channel = trans.getLogChannel();
       Result result = trans.getResult();
+      String loggingText = KettleLogStore.getAppender().getBuffer( trans.getLogChannelId(), true ).toString();
 
       Map<String, Object> transPars = new HashMap<>();
       transPars.put("transName", transMeta.getName());
@@ -241,7 +238,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       transPars.put("linesRead", result.getNrLinesRead() );
       transPars.put("linesWritten", result.getNrLinesWritten() );
       transPars.put("linesRejected", result.getNrLinesRejected() );
-      transPars.put("loggingText", result.getLogText());
+      transPars.put("loggingText", loggingText);
 
       StringBuilder transCypher = new StringBuilder();
       transCypher.append("MATCH (trans:Transformation { name : {transName}} ) ");
