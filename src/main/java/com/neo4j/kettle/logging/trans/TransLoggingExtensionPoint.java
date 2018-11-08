@@ -14,11 +14,14 @@ import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.logging.LoggingRegistry;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransAdapter;
+import org.pentaho.di.trans.TransHopMeta;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.StepMeta;
+import org.pentaho.di.trans.step.StepMetaDataCombi;
 
 import java.text.SimpleDateFormat;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @ExtensionPoint(
@@ -27,6 +30,10 @@ import java.util.Map;
   description = "Handle transformation logging to Neo4j for a transformation"
 )
 public class TransLoggingExtensionPoint implements ExtensionPointInterface {
+
+  public static final String EXECUTION_TYPE_STEP = "Step";
+  public static final String EXECUTION_TYPE_TRANSFORMATION = "Transformation";
+
   @Override public void callExtensionPoint( LogChannelInterface log, Object object ) throws KettleException {
     if ( !( object instanceof Trans ) ) {
       return;
@@ -91,7 +98,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       transCypher.append("SET trans.filename = {filename}, trans.description = {description} ");
       transaction.run( transCypher.toString(), transPars );
 
-      log.logBasic("Trans cypher : "+transCypher);
+      log.logDetailed("Trans cypher : "+transCypher);
 
       for ( StepMeta stepMeta : transMeta.getSteps()) {
 
@@ -142,6 +149,23 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
         transaction.run( stepCypher.toString(), stepPars );
       }
 
+      // Save hops
+      //
+      for (int i=0;i<transMeta.nrTransHops();i++) {
+        TransHopMeta hopMeta = transMeta.getTransHop( i );
+
+        Map<String, Object> hopPars = new HashMap<>();
+        hopPars.put("fromStep", hopMeta.getFromStep().getName());
+        hopPars.put("toStep", hopMeta.getToStep().getName());
+        hopPars.put("transName", transMeta.getName());
+
+        StringBuilder hopCypher = new StringBuilder(  );
+        hopCypher.append( "MATCH (from:Step { transName : {transName}, name : {fromStep}}) " );
+        hopCypher.append( "MATCH (to:Step { transName : {transName}, name : {toStep}}) " );
+        hopCypher.append( "MERGE (from)-[rel:WRITES_TO]->(to) ");
+        transaction.run( hopCypher.toString(), hopPars );
+      }
+
       transaction.success();
     } catch ( Exception e ) {
       transaction.failure();
@@ -179,7 +203,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       Map<String, Object> transPars = new HashMap<>();
       transPars.put("transName", transMeta.getName());
       transPars.put("id", channel.getLogChannelId());
-      transPars.put("type", "Transformation");
+      transPars.put("type", EXECUTION_TYPE_TRANSFORMATION );
       transPars.put("executionStart", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( trans.getStartDate() ) );
 
       StringBuilder transCypher = new StringBuilder();
@@ -225,11 +249,12 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       //
       LogChannelInterface channel = trans.getLogChannel();
       Result result = trans.getResult();
-      String loggingText = KettleLogStore.getAppender().getBuffer( trans.getLogChannelId(), true ).toString();
+      String transLogChannelId = trans.getLogChannelId();
+      String transLoggingText = KettleLogStore.getAppender().getBuffer( transLogChannelId, true ).toString();
 
       Map<String, Object> transPars = new HashMap<>();
       transPars.put("transName", transMeta.getName());
-      transPars.put("type", "Transformation");
+      transPars.put("type", EXECUTION_TYPE_TRANSFORMATION );
       transPars.put("id", channel.getLogChannelId());
       transPars.put("executionEnd", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( trans.getEndDate() ) );
       transPars.put("errors", result.getNrErrors() );
@@ -238,7 +263,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       transPars.put("linesRead", result.getNrLinesRead() );
       transPars.put("linesWritten", result.getNrLinesWritten() );
       transPars.put("linesRejected", result.getNrLinesRejected() );
-      transPars.put("loggingText", loggingText);
+      transPars.put("loggingText", transLoggingText);
 
       StringBuilder transCypher = new StringBuilder();
       transCypher.append("MATCH (trans:Transformation { name : {transName}} ) ");
@@ -255,6 +280,44 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       transCypher.append("MERGE (exec)-[r:EXECUTION_OF_TRANSFORMATION]->(trans) ");
 
       transaction.run( transCypher.toString(), transPars );
+
+      // Also log every step copy
+      //
+      List<StepMetaDataCombi> combis = trans.getSteps();
+      for (StepMetaDataCombi combi : combis) {
+        String stepLogChannelId = combi.step.getLogChannel().getLogChannelId();
+        String stepLoggingText = KettleLogStore.getAppender().getBuffer( stepLogChannelId, true ).toString();
+        Map<String, Object> stepPars = new HashMap<>();
+        stepPars.put("transName", transMeta.getName());
+        stepPars.put("name", combi.stepname);
+        stepPars.put("type", EXECUTION_TYPE_STEP );
+        stepPars.put("transType", EXECUTION_TYPE_TRANSFORMATION );
+        stepPars.put("id", stepLogChannelId);
+        stepPars.put("transId", transLogChannelId);
+        stepPars.put("copy", Long.valueOf(combi.copy) );
+        stepPars.put("status", combi.step.getStatus().getDescription() );
+        stepPars.put("loggingText", stepLoggingText );
+        stepPars.put("errors", combi.step.getErrors() );
+
+        StringBuilder stepCypher = new StringBuilder();
+        stepCypher.append("MATCH (step:Step { transName : {transName}, name : {name} } ) ");
+        stepCypher.append("MERGE (exec:Execution { objectName : {name}, type : {type}, id : {id}} ) ");
+        stepCypher.append("SET ");
+        stepCypher.append("  exec.copy = {copy} ");
+        stepCypher.append(", exec.status = {status} ");
+        stepCypher.append(", exec.loggingText = {loggingText} ");
+        stepCypher.append(", exec.errors = {errors} ");
+        stepCypher.append("MERGE (exec)-[r:EXECUTION_OF_STEP]->(step) ");
+
+        transaction.run( stepCypher.toString(), stepPars );
+
+        StringBuilder stepRelCypher = new StringBuilder();
+        stepRelCypher.append("MATCH (exec:Execution { objectName : {name}, type : {type}, id : {id}} ) ");
+        stepRelCypher.append("MATCH (texec:Execution {objectName : {transName}, type : {transType}, id : {transId}} )  ");
+        stepRelCypher.append("MERGE (texec)-[r:EXECUTES_STEP]->(exec) ");
+
+        transaction.run( stepRelCypher.toString(), stepPars );
+      }
 
       transaction.success();
     } catch ( Exception e ) {
