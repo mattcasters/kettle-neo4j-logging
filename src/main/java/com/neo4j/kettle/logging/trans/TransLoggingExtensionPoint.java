@@ -11,6 +11,10 @@ import org.pentaho.di.core.extension.ExtensionPoint;
 import org.pentaho.di.core.extension.ExtensionPointInterface;
 import org.pentaho.di.core.logging.KettleLogStore;
 import org.pentaho.di.core.logging.LogChannelInterface;
+import org.pentaho.di.core.logging.LogLevel;
+import org.pentaho.di.core.logging.LoggingHierarchy;
+import org.pentaho.di.core.logging.LoggingObjectInterface;
+import org.pentaho.di.core.logging.LoggingObjectType;
 import org.pentaho.di.core.logging.LoggingRegistry;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransAdapter;
@@ -31,8 +35,8 @@ import java.util.Map;
 )
 public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
-  public static final String EXECUTION_TYPE_STEP = "Step";
-  public static final String EXECUTION_TYPE_TRANSFORMATION = "Transformation";
+  public static final String EXECUTION_TYPE_TRANSFORMATION = LoggingObjectType.TRANS.name();
+  public static final String EXECUTION_TYPE_STEP = LoggingObjectType.STEP.name();
 
   @Override public void callExtensionPoint( LogChannelInterface log, Object object ) throws KettleException {
     if ( !( object instanceof Trans ) ) {
@@ -310,14 +314,60 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
         stepCypher.append("MERGE (exec)-[r:EXECUTION_OF_STEP]->(step) ");
 
         transaction.run( stepCypher.toString(), stepPars );
-
-        StringBuilder stepRelCypher = new StringBuilder();
-        stepRelCypher.append("MATCH (exec:Execution { objectName : {name}, type : {type}, id : {id}} ) ");
-        stepRelCypher.append("MATCH (texec:Execution {objectName : {transName}, type : {transType}, id : {transId}} )  ");
-        stepRelCypher.append("MERGE (texec)-[r:EXECUTES_STEP]->(exec) ");
-
-        transaction.run( stepRelCypher.toString(), stepPars );
       }
+
+
+      // Now log the complete execution hierarchy
+      //
+      List<LoggingHierarchy> hierarchies = trans.getLoggingHierarchy();
+
+      // First create the Execution nodes
+      //
+      for (LoggingHierarchy hierarchy : hierarchies) {
+        LoggingObjectInterface loggingObject = hierarchy.getLoggingObject();
+        LogLevel logLevel = loggingObject.getLogLevel();
+        Map<String, Object> execPars = new HashMap<>();
+        execPars.put("name", loggingObject.getObjectName());
+        execPars.put("type", loggingObject.getObjectType().name());
+        execPars.put("id", loggingObject.getLogChannelId());
+        execPars.put("containerId", loggingObject.getContainerObjectId());
+        execPars.put("logLevel", logLevel!=null ? logLevel.getCode() : null);
+        execPars.put("registrationDate", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( loggingObject.getRegistrationDate()));
+
+        StringBuilder execCypher = new StringBuilder();
+        execCypher.append("MERGE (exec:Execution { objectName : {name}, type : {type}, id : {id}} ) ");
+        execCypher.append("SET ");
+        execCypher.append("  exec.containerId = {containerId} ");
+        execCypher.append(", exec.logLevel = {logLevel} ");
+        execCypher.append(", exec.registrationDate = {registrationDate} ");
+
+        transaction.run( execCypher.toString(), execPars );
+      }
+
+      // Now create the Execution relationships
+      //
+      for (LoggingHierarchy hierarchy : hierarchies) {
+        LoggingObjectInterface loggingObject = hierarchy.getLoggingObject();
+        LoggingObjectInterface parentObject = loggingObject.getParent();
+        if (parentObject!=null) {
+          Map<String, Object> execPars = new HashMap<>();
+          execPars.put( "name", loggingObject.getObjectName() );
+          execPars.put( "type", loggingObject.getObjectType().name() );
+          execPars.put( "id", loggingObject.getLogChannelId() );
+          execPars.put( "parentName", parentObject.getObjectName() );
+          execPars.put( "parentType", parentObject.getObjectType().name() );
+          execPars.put( "parentId", parentObject.getLogChannelId() );
+
+          StringBuilder execCypher = new StringBuilder();
+          execCypher.append( "MATCH (parent:Execution { objectName : {name}, type : {type}, id : {id}} ) " );
+          execCypher.append( "MATCH (child:Execution { objectName : {parentName}, type : {parentType}, id : {parentId}} ) " );
+          execCypher.append( "MERGE (parent)-[rel:EXECUTES]->(child) " );
+          transaction.run( execCypher.toString(), execPars );
+        }
+      }
+
+
+
 
       transaction.success();
     } catch ( Exception e ) {
