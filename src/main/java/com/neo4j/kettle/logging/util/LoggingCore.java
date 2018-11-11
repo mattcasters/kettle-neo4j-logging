@@ -32,7 +32,9 @@ public class LoggingCore {
     }
     MetaStoreFactory<NeoConnection> factory = new MetaStoreFactory<NeoConnection>( NeoConnection.class, metaStore, Defaults.NAMESPACE );
     NeoConnection connection = factory.loadElement( connectionName );
-    connection.initializeVariablesFrom( space );
+    if (connection!=null) {
+      connection.initializeVariablesFrom( space );
+    }
     return connection;
   }
 

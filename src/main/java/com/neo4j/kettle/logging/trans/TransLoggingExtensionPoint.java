@@ -1,5 +1,6 @@
 package com.neo4j.kettle.logging.trans;
 
+import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
 import com.neo4j.kettle.logging.util.LoggingSession;
 import com.neo4j.kettle.shared.NeoConnection;
@@ -63,6 +64,10 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       // Which connection are we logging to?
       //
       final NeoConnection connection = LoggingCore.getConnection( trans.getMetaStore(), trans );
+      if (connection==null) {
+        log.logError("Unable to find Neo4j connection to log to : "+trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION ));
+        return;
+      }
       log.logDetailed("Logging transformation information to Neo4j connection : "+connection.getName());
 
       Session session = LoggingSession.getInstance().getSession( connection );
@@ -231,7 +236,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             LogChannelInterface channel = trans.getLogChannel();
             Result result = trans.getResult();
             String transLogChannelId = trans.getLogChannelId();
-            String transLoggingText = KettleLogStore.getAppender().getBuffer( transLogChannelId, true ).toString();
+            String transLoggingText = KettleLogStore.getAppender().getBuffer( transLogChannelId, false ).toString();
             Date endDate = new Date();
 
             Map<String, Object> transPars = new HashMap<>();
@@ -270,7 +275,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             List<StepMetaDataCombi> combis = trans.getSteps();
             for ( StepMetaDataCombi combi : combis ) {
               String stepLogChannelId = combi.step.getLogChannel().getLogChannelId();
-              String stepLoggingText = KettleLogStore.getAppender().getBuffer( stepLogChannelId, true ).toString();
+              String stepLoggingText = KettleLogStore.getAppender().getBuffer( stepLogChannelId, false ).toString();
               Map<String, Object> stepPars = new HashMap<>();
               stepPars.put( "transName", transMeta.getName() );
               stepPars.put( "name", combi.stepname );
