@@ -1,0 +1,4 @@
+
+MATCH (job:Execution {type:"JOB"}), (step:Execution {name:"Read Beers"}), p=shortestpath((job)-[*..20]-(step)) WHERE job.root RETURN p limit 1
+;
+
