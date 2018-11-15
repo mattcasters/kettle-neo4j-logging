@@ -4,7 +4,6 @@ import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
 import com.neo4j.kettle.logging.util.LoggingSession;
 import com.neo4j.kettle.shared.NeoConnection;
-import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.TransactionWork;
@@ -13,7 +12,6 @@ import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.extension.ExtensionPoint;
 import org.pentaho.di.core.extension.ExtensionPointInterface;
 import org.pentaho.di.core.logging.KettleLogStore;
-import org.pentaho.di.core.logging.LogChannel;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.logging.LoggingHierarchy;
 import org.pentaho.di.core.logging.LoggingObjectType;
@@ -29,6 +27,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @ExtensionPoint(
   id = "TransLoggingExtensionPoint",
@@ -54,6 +53,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
     if ( !LoggingCore.isEnabled( trans ) ) {
       return;
     }
+
+
 
     // This is executed right at the start of the execution
     //
@@ -198,12 +199,14 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "id", channel.getLogChannelId() );
             transPars.put( "type", EXECUTION_TYPE_TRANSFORMATION );
             transPars.put( "executionStart", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( startDate ) );
+            transPars.put( "status", trans.getStatus());
 
             StringBuilder transCypher = new StringBuilder();
             transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
             transCypher.append( "MERGE (exec:Execution { name : {transName}, type : {type}, id : {id}} ) " );
             transCypher.append( "SET " );
-            transCypher.append( " exec.executionStart = {executionStart} " );
+            transCypher.append( "  exec.executionStart = {executionStart} " );
+            transCypher.append( ", exec.status = {status} " );
             transCypher.append( "MERGE (exec)-[r:EXECUTION_OF_TRANSFORMATION]->(trans) " );
 
             transaction.run( transCypher.toString(), transPars );
@@ -252,6 +255,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "linesWritten", result.getNrLinesWritten() );
             transPars.put( "linesRejected", result.getNrLinesRejected() );
             transPars.put( "loggingText", transLoggingText );
+            transPars.put( "status", trans.getStatus());
 
             StringBuilder transCypher = new StringBuilder();
             transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
@@ -259,6 +263,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transCypher.append( "SET " );
             transCypher.append( "  exec.executionEnd = {executionEnd} " );
             transCypher.append( ", exec.durationMs = {durationMs} " );
+            transCypher.append( ", exec.status = {status} " );
             transCypher.append( ", exec.errors = {errors} " );
             transCypher.append( ", exec.linesInput = {linesInput} " );
             transCypher.append( ", exec.linesOutput = {linesOutput} " );
@@ -309,6 +314,37 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               stepCypher.append( "MERGE (exec)-[r:EXECUTION_OF_STEP]->(step) " );
 
               transaction.run( stepCypher.toString(), stepPars );
+
+              // Log graph usage as well
+              // This Map is left by the Neo4j step plugins : Neo4j Output and Neo4j Graph Output
+              //
+              Map<String, Map<String, Set<String>>> usageMap = (Map<String, Map<String, Set<String>>>) trans.getExtensionDataMap().get( Defaults.TRANS_NODE_UPDATES_GROUP );
+              if (usageMap!=null) {
+                for (String graphUsage : usageMap.keySet()) {
+                  Map<String, Set<String>> stepsMap = usageMap.get( graphUsage );
+
+                  Set<String> labels = stepsMap.get( combi.stepname );
+                  if ( labels != null ) {
+                    for ( String label : labels ) {
+                      // Save relationship to GraphUsage node
+                      //
+                      Map<String, Object> usagePars = new HashMap<>();
+                      usagePars.put( "step", combi.stepname );
+                      usagePars.put( "type", "STEP");
+                      usagePars.put( "id", stepLogChannelId );
+                      usagePars.put( "label", label );
+                      usagePars.put( "usage", graphUsage);
+
+                      StringBuilder usageCypher = new StringBuilder();
+                      usageCypher.append( "MATCH (step:Execution { name : {step}, type : {type}, id : {id} } ) " );
+                      usageCypher.append( "MERGE (usage:Usage { usage : {usage}, label : {label} } ) " );
+                      usageCypher.append( "MERGE (step)-[r:PERFORMS_"+graphUsage+"]->(usage)" );
+
+                      transaction.run( usageCypher.toString(), usagePars );
+                    }
+                  }
+                }
+              }
             }
 
             transaction.success();

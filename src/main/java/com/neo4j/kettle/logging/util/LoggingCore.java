@@ -3,7 +3,11 @@ package com.neo4j.kettle.logging.util;
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.shared.NeoConnection;
 import org.apache.commons.lang.StringUtils;
+import org.neo4j.driver.v1.Driver;
+import org.neo4j.driver.v1.Session;
+import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Transaction;
+import org.neo4j.driver.v1.TransactionConfig;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.logging.LogLevel;
 import org.pentaho.di.core.logging.LoggingHierarchy;
@@ -86,6 +90,28 @@ public class LoggingCore {
         execCypher.append( "MATCH (parent:Execution { name : {parentName}, type : {parentType}, id : {parentId}} ) " );
         execCypher.append( "MERGE (parent)-[rel:EXECUTES_"+loggingObject.getObjectType().name()+"]->(child) " );
         transaction.run( execCypher.toString(), execPars );
+      }
+    }
+  }
+
+
+  public static StatementResult executeCypher( LogChannelInterface log, NeoConnection connection, String cypher, Map<String, Object> parameters ) throws Exception {
+    Driver driver = null;
+    Session session = null;
+    StatementResult result = null;
+
+    try {
+      driver = connection.getDriver( log );
+      session = driver.session();
+
+      return session.run( cypher, parameters );
+
+    } finally {
+      if (session!=null) {
+        session.close();
+      }
+      if (driver!=null) {
+        driver.close();
       }
     }
   }
