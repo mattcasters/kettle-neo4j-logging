@@ -5,8 +5,6 @@ import com.neo4j.kettle.spoon.NeoLoggingHelper;
 import org.apache.commons.lang.StringUtils;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.SashForm;
-import org.eclipse.swt.events.SelectionAdapter;
-import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.events.ShellAdapter;
 import org.eclipse.swt.events.ShellEvent;
 import org.eclipse.swt.layout.FormAttachment;
@@ -43,11 +41,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class HistoryResultsDialog extends Dialog {
+public class HistoryResultsDialog {
   private static Class<?> PKG = HistoryResultsDialog.class; // for i18n purposes, needed by Translator2!!
 
   private HistoryResults input;
 
+  private Shell parent;
   private Shell shell;
 
   private Tree wTree;
@@ -62,15 +61,15 @@ public class HistoryResultsDialog extends Dialog {
   private boolean linkedTransformation;
   private String treeName;
 
-  public HistoryResultsDialog( Shell par, HistoryResults debugLevel ) {
-    super( par, SWT.NONE );
+  public HistoryResultsDialog( Shell parent, HistoryResults debugLevel ) {
+    this.parent = parent;
     this.input = debugLevel;
     props = PropsUI.getInstance();
     linkedExecution = null;
   }
 
   public void open() {
-    Shell parent = getParent();
+    Display display = parent.getDisplay();
     shell = new Shell( parent, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX | SWT.MIN );
     props.setLook( shell );
     shell.setImage( GUIResource.getInstance().getImageSlave() );
@@ -234,7 +233,6 @@ public class HistoryResultsDialog extends Dialog {
     BaseStepDialog.setSize( shell );
 
     shell.open();
-    Display display = parent.getDisplay();
     while ( !shell.isDisposed() ) {
       if ( !display.readAndDispatch() ) {
         display.sleep();
