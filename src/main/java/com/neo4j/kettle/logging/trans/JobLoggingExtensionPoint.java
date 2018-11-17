@@ -35,10 +35,11 @@ import java.util.Map;
 )
 public class JobLoggingExtensionPoint implements ExtensionPointInterface {
 
+  public static final String JOB_START_DATE = "JOB_START_DATE";
+  public static final String JOB_END_DATE = "JOB_END_DATE";
+
   public static final String EXECUTION_TYPE_JOB = LoggingObjectType.JOB.name();
   public static final String EXECUTION_TYPE_JOBENTRY = LoggingObjectType.JOBENTRY.name();
-
-  protected Date startDate;
 
   @Override public void callExtensionPoint( LogChannelInterface log, Object object ) throws KettleException {
     if ( !( object instanceof Job ) ) {
@@ -53,9 +54,9 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
-    // This is executed right at the start of the execution
+    // Keep the start date
     //
-    startDate = new Date();
+    job.getExtensionDataMap().put(JOB_START_DATE, new Date());
 
     try {
 
@@ -194,6 +195,8 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             // Start with the job
             //
             LogChannelInterface channel = job.getLogChannel();
+            Date startDate = (Date) job.getExtensionDataMap().get( JOB_START_DATE );
+
             Map<String, Object> jobPars = new HashMap<>();
             jobPars.put( "jobName", jobMeta.getName() );
             jobPars.put( "id", channel.getLogChannelId() );
@@ -238,7 +241,10 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             Result jobResult = job.getResult();
             String jobLogChannelId = job.getLogChannelId();
             String jobLoggingText = KettleLogStore.getAppender().getBuffer( jobLogChannelId, true ).toString();
+
             Date endDate = new Date();
+            job.getExtensionDataMap().put(JOB_END_DATE, new Date());
+            Date startDate = (Date) job.getExtensionDataMap().get( JOB_START_DATE );
 
             Map<String, Object> jobPars = new HashMap<>();
             jobPars.put( "jobName", jobMeta.getName() );

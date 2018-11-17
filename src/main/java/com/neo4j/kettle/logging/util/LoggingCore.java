@@ -4,10 +4,13 @@ import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.shared.NeoConnection;
 import org.apache.commons.lang.StringUtils;
 import org.neo4j.driver.v1.Driver;
+import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.TransactionConfig;
+import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.types.Node;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.logging.LogLevel;
 import org.pentaho.di.core.logging.LoggingHierarchy;
@@ -18,6 +21,9 @@ import org.pentaho.metastore.api.exceptions.MetaStoreException;
 import org.pentaho.metastore.persist.MetaStoreFactory;
 
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +60,7 @@ public class LoggingCore {
       Map<String, Object> execPars = new HashMap<>();
       execPars.put( "name", loggingObject.getObjectName() );
       execPars.put( "type", loggingObject.getObjectType().name() );
+      execPars.put( "copy", loggingObject.getObjectCopy() );
       execPars.put( "id", loggingObject.getLogChannelId() );
       execPars.put( "containerId", loggingObject.getContainerObjectId() );
       execPars.put( "logLevel", logLevel != null ? logLevel.getCode() : null );
@@ -65,6 +72,7 @@ public class LoggingCore {
       execCypher.append( "SET " );
       execCypher.append( "  exec.containerId = {containerId} " );
       execCypher.append( ", exec.logLevel = {logLevel} " );
+      execCypher.append( ", exec.copy = {copy} " );
       execCypher.append( ", exec.registrationDate = {registrationDate} " );
       execCypher.append( ", exec.root = {root} " );
 
@@ -88,7 +96,7 @@ public class LoggingCore {
         StringBuilder execCypher = new StringBuilder();
         execCypher.append( "MATCH (child:Execution { name : {name}, type : {type}, id : {id}} ) " );
         execCypher.append( "MATCH (parent:Execution { name : {parentName}, type : {parentType}, id : {parentId}} ) " );
-        execCypher.append( "MERGE (parent)-[rel:EXECUTES_"+loggingObject.getObjectType().name()+"]->(child) " );
+        execCypher.append( "MERGE (parent)-[rel:EXECUTES]->(child) " );
         transaction.run( execCypher.toString(), execPars );
       }
     }
@@ -114,5 +122,89 @@ public class LoggingCore {
         driver.close();
       }
     }
+  }
+
+  public static String getStringValue( Record record, int i ) {
+    if ( i >= record.size() ) {
+      return null;
+    }
+    Value value = record.get( i );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asString();
+  }
+
+  public static Long getLongValue( Record record, int i ) {
+    if ( i >= record.size() ) {
+      return null;
+    }
+    Value value = record.get( i );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asLong();
+  }
+
+  public static Date getDateValue( Record record, int i ) {
+    if ( i >= record.size() ) {
+      return null;
+    }
+    Value value = record.get( i );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    LocalDateTime localDateTime = value.asLocalDateTime();
+    if ( localDateTime == null ) {
+      return null;
+    }
+    return Date.from( localDateTime.atZone( ZoneId.systemDefault() ).toInstant() );
+  }
+
+  public static Boolean getBooleanValue( Record record, int i ) {
+    if ( i >= record.size() ) {
+      return null;
+    }
+    Value value = record.get( i );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asBoolean();
+  }
+
+  public static String getStringValue( Node node, String name ) {
+    Value value = node.get( name );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asString();
+  }
+
+  public static Long getLongValue( Node node, String name ) {
+    Value value = node.get( name );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asLong();
+  }
+
+  public static Boolean getBooleanValue( Node node, String name ) {
+    Value value = node.get( name );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    return value.asBoolean();
+  }
+
+  public static Date getDateValue( Node node, String name ) {
+    Value value = node.get( name );
+    if ( value == null || value.isNull() ) {
+      return null;
+    }
+    LocalDateTime localDateTime = value.asLocalDateTime();
+    if ( localDateTime == null ) {
+      return null;
+    }
+    return Date.from( localDateTime.atZone( ZoneId.systemDefault() ).toInstant() );
   }
 }

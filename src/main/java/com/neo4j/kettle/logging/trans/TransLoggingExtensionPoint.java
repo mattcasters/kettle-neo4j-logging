@@ -36,10 +36,11 @@ import java.util.Set;
 )
 public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
+  public static final String TRANS_START_DATE = "TRANS_START_DATE";
+  public static final String TRANS_END_DATE = "TRANS_END_DATE";
+
   public static final String EXECUTION_TYPE_TRANSFORMATION = LoggingObjectType.TRANS.name();
   public static final String EXECUTION_TYPE_STEP = LoggingObjectType.STEP.name();
-
-  protected Date startDate;
 
   @Override public void callExtensionPoint( LogChannelInterface log, Object object ) throws KettleException {
     if ( !( object instanceof Trans ) ) {
@@ -54,11 +55,10 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
-
-
-    // This is executed right at the start of the execution
+    // Keep the start date
     //
-    startDate = new Date();
+    trans.getExtensionDataMap().put(TRANS_START_DATE, new Date());
+
 
     try {
 
@@ -194,6 +194,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             // Start with the transformation
             //
             LogChannelInterface channel = trans.getLogChannel();
+            Date startDate = (Date) trans.getExtensionDataMap().get(TRANS_START_DATE);
+
             Map<String, Object> transPars = new HashMap<>();
             transPars.put( "transName", transMeta.getName() );
             transPars.put( "id", channel.getLogChannelId() );
@@ -241,6 +243,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             String transLogChannelId = trans.getLogChannelId();
             String transLoggingText = KettleLogStore.getAppender().getBuffer( transLogChannelId, false ).toString();
             Date endDate = new Date();
+            trans.getExtensionDataMap().put(TRANS_END_DATE, endDate);
+            Date startDate = (Date) trans.getExtensionDataMap().get(TRANS_START_DATE);
 
             Map<String, Object> transPars = new HashMap<>();
             transPars.put( "transName", transMeta.getName() );

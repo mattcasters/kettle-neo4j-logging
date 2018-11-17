@@ -2,3 +2,26 @@
 MATCH (job:Execution {type:"JOB"}), (step:Execution {name:"Read Beers"}), p=shortestpath((job)-[*..20]-(step)) WHERE job.root RETURN p limit 1
 ;
 
+
+// Get the last execution of a step by a transformation
+//
+MATCH(se:Execution { name : "Update SlaveServer", type : "STEP"})
+MATCH(te:Execution { name : "Check slave server", type : "TRANS"})
+MATCH(te)-[r:EXECUTES]->(se)
+WHERE se.registrationDate IS NOT NULL
+  AND te.registrationDate IS NOT NULL
+RETURN se.id ORDER BY se.registrationDate
+LIMIT 1
+;
+
+-->  "xxxxxx-xxx-xxx-xxx-xxxxxxxx"
+
+// Get the shortes path to the root job
+//
+MATCH (se:Execution { name : "Update SlaveServer", type : "STEP", id : "xxxxxx-xxx-xxx-xxx-xxxxxxxx"})
+   ,  (je:Execution { type : "JOB", root : true})
+   ,  p=shortestpath((se)-[:EXECUTES*..20]-(je))
+RETURN p
+LIMIT 1
+;
+

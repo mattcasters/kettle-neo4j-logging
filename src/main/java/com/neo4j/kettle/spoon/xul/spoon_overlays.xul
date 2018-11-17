@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="file://E:/workspaces/sprint_workspace/pentaho-xul/test/resource/documents/xul.css" type="text/css"?>
+<overlay id="spoon-view-zoom" title="Spoon view zoom menu item"
+         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+         xmlns:HTML="http://www.w3.org/Profiles/XHTML-transitional" height="600"
+         width="800" xmlns:pen="http://www.pentaho.org/2008/xul">
+
+  <!--
+    Add an entry to the spoon menu bar
+  -->
+  <menubar id="spoon-menubar">
+
+    <menu id="neo4j" label="Neo4j" accesskey="alt-4">
+      <menupopup id="neo4j-popup">
+        <menuitem id="neo4-logging" label="Show logging" command="neoLoggingHelper.showLogging()"/>
+      </menupopup>
+    </menu>
+
+  </menubar>
+
+</overlay>
