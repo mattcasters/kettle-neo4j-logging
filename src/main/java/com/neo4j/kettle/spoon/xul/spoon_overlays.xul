@@ -10,9 +10,9 @@
   -->
   <menubar id="spoon-menubar">
 
-    <menu id="neo4j" label="Neo4j" accesskey="alt-4">
-      <menupopup id="neo4j-popup">
-        <menuitem id="neo4-logging" label="Show logging" command="neoLoggingHelper.showLogging()"/>
+    <menu id="logging" label="Logging" accesskey="alt-4">
+      <menupopup id="logging-popup">
+        <menuitem id="logging-show" label="Show logging" command="neoLoggingHelper.showLogging()"/>
       </menupopup>
     </menu>
 
