@@ -258,9 +258,9 @@ public class DataModel {
    * @param startNode             Where to start on the left side.
    * @param mainRelationshipLabel
    */
-  public void treeLayout( DataNode startNode, String mainRelationshipLabel, int leftMargin, int topMargin, int spacingX, int spacingY ) {
+  public void treeLayout( Display display, DataNode startNode, String mainRelationshipLabel, int leftMargin, int topMargin, int spacingX, int spacingY ) {
 
-    List<Point> nodeSizes = calculateNodeSizes();
+    List<Point> nodeSizes = calculateNodeSizes(display);
 
     DataNode previousNode = null;
 
@@ -414,7 +414,7 @@ public class DataModel {
    * @param cutOffTimeMs the cutoff time in ms
    * @return the chosen score.
    */
-  public Scoring autoLayout( Rectangle bounds, long cutOffTimeMs ) {
+  public Scoring autoLayout( Display display, Rectangle bounds, long cutOffTimeMs ) {
 
     if ( nodes.size() == 0 ) {
       // Nothing to see here, move along!
@@ -432,7 +432,7 @@ public class DataModel {
     double optDistance = LoggingCore.calculateOptDistance( bounds, nodes.size() );
     int nrNodes = nodes.size();
 
-    java.util.List<Point> nodesizes = calculateNodeSizes();
+    java.util.List<Point> nodesizes = calculateNodeSizes(display);
 
     // Generate list of random points in the bounding box
     //
@@ -475,10 +475,10 @@ public class DataModel {
     return bestScore;
   }
 
-  private java.util.List<Point> calculateNodeSizes() {
+  private java.util.List<Point> calculateNodeSizes(Display display) {
     java.util.List<Point> sizes = new ArrayList<>();
 
-    Image image = new Image( Display.getDefault(), 100, 100 );
+    Image image = new Image( display, 100, 100 );
     GC gc = new GC( image );
     gc.setFont( GUIResource.getInstance().getFontMediumBold() );
 
@@ -516,10 +516,10 @@ public class DataModel {
     return coordinates;
   }
 
-  public Scoring calculateGraphScore( Rectangle bounds ) {
+  public Scoring calculateGraphScore( Display display, Rectangle bounds ) {
     double optDistance = LoggingCore.calculateOptDistance( bounds, nodes.size() );
     List<Point> coordinates = getNodeCoordinates();
-    List<Point> nodeSizes = calculateNodeSizes();
+    List<Point> nodeSizes = calculateNodeSizes(display);
     return calculateGraphScore( coordinates, bounds, optDistance, nodeSizes );
   }
 

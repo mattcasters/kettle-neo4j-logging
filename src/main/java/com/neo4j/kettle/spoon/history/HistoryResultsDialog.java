@@ -786,7 +786,7 @@ public class HistoryResultsDialog {
       long cutOffTimeMs = 1000;
 
       // currentDataModel.getBestScoreListeners().add( this::updateDataModel );
-      Scoring bestScore = currentDataModel.autoLayout( wCanvas.getBounds(), cutOffTimeMs );
+      Scoring bestScore = currentDataModel.autoLayout( parent.getDisplay(), wCanvas.getBounds(), cutOffTimeMs );
       if (bestScore==null) {
         return;
       }
@@ -800,7 +800,7 @@ public class HistoryResultsDialog {
       }
 
       if (startNode!=null) {
-        currentDataModel.treeLayout( startNode, "EXECUTES", 50, 50, 300, 200 );
+        currentDataModel.treeLayout( parent.getDisplay(), startNode, "EXECUTES", 50, 50, 300, 200 );
       }
 
       // Set node colors
