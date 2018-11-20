@@ -3,6 +3,7 @@ package com.neo4j.kettle.logging.util;
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.shared.NeoConnection;
 import org.apache.commons.lang.StringUtils;
+import org.eclipse.swt.graphics.Rectangle;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Session;
@@ -207,4 +208,36 @@ public class LoggingCore {
     }
     return Date.from( localDateTime.atZone( ZoneId.systemDefault() ).toInstant() );
   }
+
+  public static double calculateRadius( Rectangle bounds ) {
+    double radius = (double)(Math.min( bounds.width, bounds.height)) * 0.8 / 2; // 20% margin around circle
+    return radius;
+  }
+
+  public static double calculateOptDistance( Rectangle bounds, int nrNodes ) {
+
+    if (nrNodes==0) {
+      return -1;
+    }
+    // Layout around a circle in essense.
+    // So get a spot for every node on the circle.
+    //
+
+    // The radius is at most the smallest of width or height
+    //
+    double radius = calculateRadius( bounds );
+
+    // Circumference
+    //
+    double circleLength = Math.PI * 2 * radius;
+
+    // Optimal distance estimate is line segment on circle circumference
+    // 25% margin between segments
+    // Only put half of the nodes on the circle, the rest not.
+    //
+    double optDistance = 0.75 * circleLength / ( nrNodes * 2 );
+
+    return optDistance;
+  }
+
 }

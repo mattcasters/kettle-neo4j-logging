@@ -13,6 +13,7 @@
     <menu id="logging" label="Logging" accesskey="alt-4">
       <menupopup id="logging-popup">
         <menuitem id="logging-show" label="Show logging" command="neoLoggingHelper.showLogging()"/>
+        <menuitem id="logging-find-error" label="Find error" command="neoLoggingHelper.findError()"/>
       </menupopup>
     </menu>
 

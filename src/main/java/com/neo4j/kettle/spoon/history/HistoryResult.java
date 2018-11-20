@@ -1,5 +1,7 @@
 package com.neo4j.kettle.spoon.history;
 
+import org.pentaho.di.core.Const;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -256,5 +258,81 @@ public class HistoryResult {
 
   public Boolean isRoot() {
     return root;
+  }
+
+  public String getExecutionInfoCommand() {
+    StringBuilder cmd = new StringBuilder(  );
+
+    cmd.append( "MATCH(ex:Execution { name : \"" + getName() + "\", type : \"" + getType() + "\", id : \"" + getId() + "\"}) " ).append( Const.CR);
+    cmd.append( "RETURN ex " ).append( Const.CR );
+
+    return cmd.toString();
+  }
+
+  public String getErrorPathCommand() {
+    StringBuilder pathCypher = new StringBuilder(  );
+
+    pathCypher.append( "MATCH(top:Execution { name : \"" + getName() + "\", type : \"" + getType() + "\", id : \"" + getId() + "\"})-[rel:EXECUTES*]-(err:Execution) " ).append( Const.CR );
+    pathCypher.append( "   , p=shortestpath((top)-[:EXECUTES*]-(err)) " ).append( Const.CR );
+    pathCypher.append( "WHERE top.registrationDate IS NOT NULL " ).append( Const.CR );
+    pathCypher.append( "  AND err.errors > 0 " ).append( Const.CR );
+    pathCypher.append( "  AND size((err)-[:EXECUTES]->())=0 " ).append( Const.CR );
+    pathCypher.append( "RETURN p " ).append( Const.CR );
+    pathCypher.append( "ORDER BY size(RELATIONSHIPS(p)) DESC " ).append( Const.CR );
+    pathCypher.append( "LIMIT 5" ).append( Const.CR );
+
+    return pathCypher.toString();
+  }
+
+  public String getShortestPathCommand() {
+    StringBuilder cmd = new StringBuilder(  );
+
+    cmd.append( "MATCH(se:Execution { name : \"" + getName() + "\", type : \"" + getType() + "\", id : \"" + getId() + "\"})" ).append(Const.CR);
+    cmd.append( ", (je:Execution { root : true }) " ).append(Const.CR);
+    cmd.append( "  , p=shortestpath((se)-[:EXECUTES*]-(je)) " ).append(Const.CR);
+    cmd.append( "WHERE se.registrationDate IS NOT NULL " ).append(Const.CR);
+    cmd.append( "RETURN p " ).append(Const.CR);
+    cmd.append( "LIMIT 1 " ).append(Const.CR);
+
+    return cmd.toString();
+  }
+
+  public String getShortestPathWithMetadataCommand( int pathIndex ) {
+    StringBuilder cmd = new StringBuilder(  );
+
+    cmd.append( "MATCH(se:Execution { name : \"" + getName() + "\", type : \"" + getType() + "\", id : \"" + getId() + "\"})" ).append(Const.CR);
+    cmd.append( ", (je:Execution { root : true }) " ).append(Const.CR);
+    cmd.append( "  , p=shortestpath((se)-[:EXECUTES*]-(je)) " ).append(Const.CR);
+    cmd.append( "WHERE se.registrationDate IS NOT NULL " ).append(Const.CR);
+
+    // Now link the metadata...
+    //
+    StringBuilder returns = new StringBuilder( "RETURN p" );
+    int matchIndex = 1;
+
+    List<HistoryResult> shortestPath = getShortestPaths().get(pathIndex);
+
+    for (HistoryResult result : shortestPath) {
+      String metaLabel = null;
+      String metaRel = null;
+      if (result.getType().equals("TRANS")) {
+        metaLabel = "Transformation";
+      } else if (result.getType().equals("JOB")) {
+        metaLabel = "Job";;
+      } else if (result.getType().equals("JOBENTRY")) {
+        metaLabel = "JobEntry";
+      } else if (result.getType().equals("STEP")) {
+        metaLabel = "Step";
+      }
+      if (metaLabel!=null) {
+        cmd.append("MATCH (:Execution { type : \""+result.getType()+"\", id : \""+result.getId()+"\"})-[metaRel"+matchIndex+"]->(meta"+matchIndex+":"+metaLabel+") ").append(Const.CR);
+        returns.append(", metaRel"+matchIndex+", meta"+matchIndex);
+        matchIndex++;
+      }
+    }
+    cmd.append(returns.toString()).append(" ").append( Const.CR );
+    cmd.append("LIMIT 1 ").append(Const.CR);
+
+    return cmd.toString();
   }
 }

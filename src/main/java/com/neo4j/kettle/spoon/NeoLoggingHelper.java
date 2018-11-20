@@ -24,6 +24,10 @@ package com.neo4j.kettle.spoon;
 
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
+import com.neo4j.kettle.model.DataModel;
+import com.neo4j.kettle.model.DataNode;
+import com.neo4j.kettle.model.DataProperty;
+import com.neo4j.kettle.model.DataRelationship;
 import com.neo4j.kettle.shared.NeoConnection;
 import com.neo4j.kettle.spoon.history.HistoryResult;
 import com.neo4j.kettle.spoon.history.HistoryResults;
@@ -36,6 +40,7 @@ import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.types.Node;
 import org.neo4j.driver.v1.types.Path;
+import org.neo4j.driver.v1.types.Relationship;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
@@ -81,7 +86,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
           instance.driver = instance.connection.getDriver( instance.spoon.getLog() );
         }
       } catch ( Exception e ) {
-        instance.spoon.getLog().logError( "No usable Neo4j logging connection configured in variable "+ Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION, e );
+        instance.spoon.getLog().logError( "No usable Neo4j logging connection configured in variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION, e );
         instance.connection = null;
         instance.driver = null;
       }
@@ -113,12 +118,12 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     examineStepLogs( true );
   }
 
-  public void examineStepLogs(boolean errorsOnly) {
+  public void examineStepLogs( boolean errorsOnly ) {
     try {
       TransGraph transGraph = spoon.getActiveTransGraph();
       TransMeta transMeta = spoon.getActiveTransformation();
       StepMeta stepMeta = transGraph.getCurrentStep();
-      if ( driver==null || connection == null || transGraph == null || transMeta == null || stepMeta == null ) {
+      if ( driver == null || connection == null || transGraph == null || transMeta == null || stepMeta == null ) {
         return;
       }
 
@@ -134,7 +139,9 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       Session session = null;
       try {
         session = driver.session();
-        lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly );
+        lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly, false );
+
+        testGraphReturns( session, historyResults );
 
         HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
         historyResultsDialog.open();
@@ -149,44 +156,42 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     }
   }
 
+  private void testGraphReturns( Session session, HistoryResults historyResults ) {
+
+    // Test, won't always work
+    //
+    String cypher = historyResults.getLastExecutions().get( 0 ).getShortestPathWithMetadataCommand( 0 );
+
+    StatementResult result = session.run( cypher );
+
+    /*
+    while (result.hasNext()) {
+      Record record = result.next();
+      System.out.println( "Found record : "+record.size()+" values");
+      for (String key : record.keys()) {
+        Value value = record.get( key );
+        System.out.println( "  - "+key+": "+value.type().name());
+      }
+    }
+    */
+
+    DataModel graphModel = new DataModel( "Execution and metadata", result );
+
+  }
+
   public void showLogging() {
-    if ( driver==null || connection == null) {
+    if ( driver == null || connection == null ) {
       return;
     }
 
     try {
-      HistoryResults historyResults = null;
+      HistoryResults historyResults = getParentHistoryResults(spoon, "Execution history");
 
-      JobGraph jobGraph = spoon.getActiveJobGraph();
-      if ( jobGraph != null ) {
-        JobMeta jobMeta = spoon.getActiveJob();
-
-        historyResults = new HistoryResults();
-        historyResults.setSubjectName( jobMeta.getName() );
-        historyResults.setSubjectType( "JOB" );
-        historyResults.setSubjectCopy( null );
-        historyResults.setParentName( null );
-        historyResults.setParentType( null );
-        historyResults.setTopic( "Execution history of job'" + jobMeta.getName() + "'" );
-      }
-      TransGraph transGraph = spoon.getActiveTransGraph();
-      if ( transGraph != null ) {
-        TransMeta transMeta = spoon.getActiveTransformation();
-
-        historyResults = new HistoryResults();
-        historyResults.setSubjectName( transMeta.getName() );
-        historyResults.setSubjectType( "TRANS" );
-        historyResults.setSubjectCopy( null );
-        historyResults.setParentName( null );
-        historyResults.setParentType( null );
-        historyResults.setTopic( "Execution history of transformation'" + transMeta.getName() + "'" );
-      }
-
-      if (historyResults!=null) {
+      if ( historyResults != null ) {
         Session session = null;
         try {
           session = driver.session();
-          lookupExecutionHistory( historyResults, spoon.getLog(), session, false );
+          lookupExecutionHistory( historyResults, spoon.getLog(), session, false, false );
 
           HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
           historyResultsDialog.open();
@@ -202,6 +207,37 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     }
   }
 
+  private HistoryResults getParentHistoryResults( Spoon spoon, String baseMessage ) {
+    HistoryResults historyResults = null;
+
+    JobGraph jobGraph = spoon.getActiveJobGraph();
+    if ( jobGraph != null ) {
+      JobMeta jobMeta = spoon.getActiveJob();
+
+      historyResults = new HistoryResults();
+      historyResults.setSubjectName( jobMeta.getName() );
+      historyResults.setSubjectType( "JOB" );
+      historyResults.setSubjectCopy( null );
+      historyResults.setParentName( null );
+      historyResults.setParentType( null );
+      historyResults.setTopic( baseMessage+" of job'" + jobMeta.getName() + "'" );
+    }
+    TransGraph transGraph = spoon.getActiveTransGraph();
+    if ( transGraph != null ) {
+      TransMeta transMeta = spoon.getActiveTransformation();
+
+      historyResults = new HistoryResults();
+      historyResults.setSubjectName( transMeta.getName() );
+      historyResults.setSubjectType( "TRANS" );
+      historyResults.setSubjectCopy( null );
+      historyResults.setParentName( null );
+      historyResults.setParentType( null );
+      historyResults.setTopic( baseMessage+" of transformation'" + transMeta.getName() + "'" );
+    }
+
+    return historyResults;
+  }
+
   public void examineJobEntryLogs() {
     examineJobEntryLogs( false );
   }
@@ -210,12 +246,12 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     examineJobEntryLogs( true );
   }
 
-  public void examineJobEntryLogs(boolean errorsOnly) {
+  public void examineJobEntryLogs( boolean errorsOnly ) {
     try {
       JobGraph jobGraph = spoon.getActiveJobGraph();
       JobMeta jobMeta = spoon.getActiveJob();
       JobEntryCopy jobEntry = jobGraph.getJobEntry();
-      if ( driver==null || connection == null || jobGraph == null || jobMeta == null || jobEntry == null ) {
+      if ( driver == null || connection == null || jobGraph == null || jobMeta == null || jobEntry == null ) {
         return;
       }
 
@@ -231,7 +267,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       Session session = null;
       try {
         session = driver.session();
-        lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly );
+        lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly, false );
 
         HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
         historyResultsDialog.open();
@@ -246,9 +282,9 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     }
   }
 
-  public void lookupExecutionHistory( HistoryResults historyResults, LogChannelInterface log, Session session, boolean errorsOnly ) {
+  public void lookupExecutionHistory( HistoryResults historyResults, LogChannelInterface log, Session session, boolean errorsOnly, boolean errorPath ) {
 
-    boolean hasParent = StringUtils.isNotEmpty(historyResults.getParentName());
+    boolean hasParent = StringUtils.isNotEmpty( historyResults.getParentName() );
 
     // First get the ID of the last :Execution ID
     //
@@ -260,16 +296,16 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
     StringBuilder cypher = new StringBuilder();
     cypher.append( "MATCH(se:Execution { name : {subjectName}, type : {subjectType}}) " );
-    if(hasParent) {
+    if ( hasParent ) {
       cypher.append( "MATCH(te:Execution { name : {parentName}, type : {parentType}}) " );
       cypher.append( "MATCH(te)-[r:EXECUTES]->(se) " );
     }
     cypher.append( "WHERE se.registrationDate IS NOT NULL " );
-    if(hasParent) {
+    if ( hasParent ) {
       cypher.append( "  AND te.registrationDate IS NOT NULL " );
     }
 
-    if (errorsOnly) {
+    if ( errorsOnly ) {
       cypher.append( "  AND se.errors>0 " );
     }
 
@@ -306,7 +342,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       execution.setRoot( LoggingCore.getBooleanValue( record, index++ ) );
       historyResults.getLastExecutions().add( execution );
 
-      if (execution.isRoot()==null || !execution.isRoot()) {
+      if ( execution.isRoot() == null || !execution.isRoot() || errorPath ) {
         // OK, we're still here.
         // We now know the unique key for the selected step's last execution in the given transformation
         //
@@ -318,18 +354,33 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         pathParams.put( "subjectId", subjectLogChannelId );
 
         StringBuilder pathCypher = new StringBuilder();
-        pathCypher.append( "MATCH(se:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}}) " );
-        pathCypher.append( "   , (je:Execution { root : true }) " );
-        pathCypher.append( "   , p=shortestpath((se)-[:EXECUTES*..20]-(je)) " );
-        pathCypher.append( "WHERE se.registrationDate IS NOT NULL " );
-        pathCypher.append( "RETURN p " );
-        pathCypher.append( "LIMIT 5 " );
+        if (errorPath) {
+
+          System.out.println( "Error path top ID : "+subjectLogChannelId );
+
+          pathCypher.append( "MATCH(top:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}})-[rel:EXECUTES*]-(err:Execution) " );
+          pathCypher.append( "   , p=shortestpath((top)-[:EXECUTES*]-(err)) " );
+          pathCypher.append( "WHERE top.registrationDate IS NOT NULL " );
+          pathCypher.append( "  AND err.errors > 0 " );
+          pathCypher.append( "  AND size((err)-[:EXECUTES]->())=0 " );
+          pathCypher.append( "RETURN p " );
+          pathCypher.append( "ORDER BY size(RELATIONSHIPS(p)) DESC " );
+          pathCypher.append( "LIMIT 5" );
+        } else {
+          pathCypher.append( "MATCH(se:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}}) " );
+          pathCypher.append( "   , (je:Execution { root : true }) " );
+          pathCypher.append( "   , p=shortestpath((se)-[:EXECUTES*]-(je)) " );
+          pathCypher.append( "WHERE se.registrationDate IS NOT NULL " );
+          pathCypher.append( "RETURN p " );
+          pathCypher.append( "LIMIT 5 " );
+        }
 
         StatementResult pathResult = session.run( pathCypher.toString(), pathParams );
 
         List<List<HistoryResult>> shortestPaths = execution.getShortestPaths();
 
         while ( pathResult.hasNext() ) {
+          System.out.println("Path found!");
           Record pathRecord = pathResult.next();
           Value pathValue = pathRecord.get( 0 );
           Path path = pathValue.asPath();
@@ -338,6 +389,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
             HistoryResult pathExecution = new HistoryResult();
             pathExecution.setId( LoggingCore.getStringValue( node, "id" ) );
             pathExecution.setName( LoggingCore.getStringValue( node, "name" ) );
+            System.out.println(" - Node name : "+pathExecution.getName());
             pathExecution.setType( LoggingCore.getStringValue( node, "type" ) );
             pathExecution.setCopy( LoggingCore.getStringValue( node, "copy" ) );
             pathExecution.setRegistrationDate( LoggingCore.getStringValue( node, "registrationDate" ) );
@@ -349,7 +401,12 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
             pathExecution.setErrors( LoggingCore.getLongValue( node, "errors" ) );
             pathExecution.setLoggingText( LoggingCore.getStringValue( node, "loggingText" ) );
             pathExecution.setDurationMs( LoggingCore.getLongValue( node, "durationMs" ) );
-            shortestPath.add( pathExecution );
+
+            if (errorPath) {
+              shortestPath.add( 0, pathExecution );
+            } else {
+              shortestPath.add( pathExecution );
+            }
           }
           shortestPaths.add( shortestPath );
         }
@@ -359,5 +416,38 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
   public Driver getDriver() {
     return driver;
+  }
+
+  /**
+   * Look from the last job execution into the logs and retrieve a step or job entry with an error.
+   * Then display the shortest path to that.
+   */
+  public void findError() {
+    if ( driver == null || connection == null ) {
+      return;
+    }
+
+    Session session = null;
+
+    Spoon spoon = Spoon.getInstance();
+    try {
+      session = driver.session();
+
+      // First, find the last execution of the current transformation or job.
+      //
+      HistoryResults historyResults = getParentHistoryResults( spoon, "Error analyses" );
+
+      // Get error execution, find error paths to the problem
+      //
+      lookupExecutionHistory( historyResults, spoon.getLog(), session, false, true );
+
+      HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults, true );
+      historyResultsDialog.open();
+
+    } catch(Exception e) {
+      new ErrorDialog(spoon.getShell(), "Error", "Error finding error path", e);
+    } finally {
+      session.close();
+    }
   }
 }
