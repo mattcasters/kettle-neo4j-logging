@@ -43,12 +43,18 @@ import org.pentaho.di.core.logging.LoggingObjectType;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
 import org.pentaho.di.i18n.BaseMessages;
+import org.pentaho.di.job.JobMeta;
+import org.pentaho.di.job.entry.JobEntryCopy;
+import org.pentaho.di.trans.TransMeta;
+import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.ui.core.ConstUI;
 import org.pentaho.di.ui.core.PropsUI;
 import org.pentaho.di.ui.core.gui.GUIResource;
 import org.pentaho.di.ui.core.gui.WindowProperty;
 import org.pentaho.di.ui.core.widget.TreeMemory;
 import org.pentaho.di.ui.spoon.Spoon;
+import org.pentaho.di.ui.spoon.job.JobGraph;
+import org.pentaho.di.ui.spoon.trans.TransGraph;
 import org.pentaho.di.ui.trans.step.BaseStepDialog;
 
 import java.util.ArrayList;
@@ -77,7 +83,6 @@ public class HistoryResultsDialog {
   private int middle;
   private int margin;
   private HistoryResult linkedExecution;
-  private boolean linkedTransformation;
   private String treeName;
 
   private NeoConnection connection;
@@ -327,6 +332,7 @@ public class HistoryResultsDialog {
       }
     } );
     wTree.addListener( SWT.Selection, this::handleItemSelection );
+    wTree.addListener( SWT.DefaultSelection, this::openItem );
 
     getData();
 
@@ -372,14 +378,8 @@ public class HistoryResultsDialog {
           linkedExecution.setName( name );
           linkedExecution.setType( type );
 
-          if ("TRANS".equals( type )) {
-            linkedTransformation=true;
-            System.out.println( "CLICKED ON TRANS NODE id : "+id+", type : "+type+", name : "+name );
-            openItem( null );
-          }
-          if ("JOB".equals( type )) {
-            linkedTransformation=false;
-            System.out.println( "CLICKED ON JOB NODE id : "+id+", type : "+type+", name : "+name );
+          if ("TRANS".equals( type ) || "STEP".equals( type ) || "JOB".equals( type )) {
+            System.out.println( "CLICKED ON NODE id : "+id+", type : "+type+", name : "+name );
             openItem( null );
           }
         }
@@ -554,18 +554,129 @@ public class HistoryResultsDialog {
       return;
     }
 
-    String filename = null;
     String nodeLabel = null;
     String relationship = null;
 
-    if (linkedTransformation) {
-      nodeLabel = "Transformation";
-      relationship = "EXECUTION_OF_TRANSFORMATION";
-    } else {
-      nodeLabel = "Job";
-      relationship = "EXECUTION_OF_JOB";
+    if ("TRANS".equals(linkedExecution.getType())) {
+      openTransformationOrJob("Transformation", "EXECUTION_OF_TRANSFORMATION");
+    } else if ("JOB".equals( linkedExecution.getType() )){
+      openTransformationOrJob("Job", "EXECUTION_OF_JOB");
+    } else if ("STEP".equals( linkedExecution.getType() )){
+      openStep();
+    } else if ("JOBENTRY".equals( linkedExecution.getType() )){
+      openJobEntry();
     }
 
+
+  }
+
+  private void openStep() {
+
+    System.out.println("Open step : "+linkedExecution.getId()+", name : "+linkedExecution.getName()+", type: "+linkedExecution.getType());
+
+    Map<String, Object> params = new HashMap<>();
+    params.put( "subjectName", linkedExecution.getName() );
+    params.put( "subjectType", linkedExecution.getType() );
+    params.put( "subjectId",   linkedExecution.getId() );
+
+    StringBuilder cypher = new StringBuilder();
+    cypher.append( "MATCH(step:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}} )" ); // STEP
+    cypher.append( "-[:EXECUTION_OF_STEP]->(stepMeta:Step { name : {subjectName}} )" ); // Step
+    cypher.append( "-[:STEP_OF_TRANSFORMATION]->(transMeta:Transformation) " );
+    cypher.append( "RETURN transMeta.filename, stepMeta.name " );
+
+    System.out.println("Open step cypher : "+cypher.toString());
+
+    StatementResult statementResult = session.run( cypher.toString(), params );
+    if (!statementResult.hasNext()) {
+      statementResult.consume();
+      return; // No file found
+    }
+    Record record = statementResult.next();
+    statementResult.consume();
+
+    String filename = LoggingCore.getStringValue( record, 0 );
+    String stepname = LoggingCore.getStringValue( record, 1 );
+
+    System.out.println("Open filename : "+filename);
+    System.out.println("Open stepname : "+stepname);
+
+    Spoon spoon = Spoon.getInstance();
+    if ( StringUtils.isNotEmpty(filename)) {
+      close();
+      spoon.openFile( filename, false );
+      if (StringUtils.isNotEmpty( stepname )) {
+        TransGraph transGraph = Spoon.getInstance().getActiveTransGraph();
+        if (transGraph!=null) {
+          System.out.println("Open step : "+stepname);
+          TransMeta transMeta = transGraph.getTransMeta();
+          StepMeta stepMeta = transMeta.findStep( stepname );
+          if (stepMeta!=null) {
+            transMeta.unselectAll();
+            stepMeta.setSelected( true );
+            spoon.editStep(transMeta, stepMeta);
+          } else {
+            System.out.println("step not found!");
+          }
+        }
+      }
+    }
+  }
+
+  private void openJobEntry() {
+
+    System.out.println("Open job entry : "+linkedExecution.getId()+", name : "+linkedExecution.getName()+", type: "+linkedExecution.getType());
+
+    Map<String, Object> params = new HashMap<>();
+    params.put( "subjectName", linkedExecution.getName() );
+    params.put( "subjectType", linkedExecution.getType() );
+    params.put( "subjectId",   linkedExecution.getId() );
+
+    StringBuilder cypher = new StringBuilder();
+    cypher.append( "MATCH(jobEntry:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}} )" ); // JOBENTRY
+    cypher.append( "-[:EXECUTION_OF_JOBENTRY]->(jobEntryMeta:JobEntry { name : {subjectName}} )" ); // JobEntry
+    cypher.append( "-[:JOBENTRY_OF_JOB]->(jobMeta:Job) " ); // JobMeta
+    cypher.append( "RETURN jobMeta.filename, jobEntryMeta.name " );
+
+    System.out.println("Open job entry cypher : "+cypher.toString());
+
+    StatementResult statementResult = session.run( cypher.toString(), params );
+    if (!statementResult.hasNext()) {
+      statementResult.consume();
+      return; // No file found
+    }
+    Record record = statementResult.next();
+    statementResult.consume();
+
+    String filename = LoggingCore.getStringValue( record, 0 );
+    String entryname = LoggingCore.getStringValue( record, 1 );
+
+    System.out.println("Open filename : "+filename);
+    System.out.println("Open stepname : "+entryname);
+
+    Spoon spoon = Spoon.getInstance();
+    if ( StringUtils.isNotEmpty(filename)) {
+      close();
+      spoon.openFile( filename, false );
+      if (StringUtils.isNotEmpty( entryname )) {
+        JobGraph jobGraph = Spoon.getInstance().getActiveJobGraph();
+        if (jobGraph!=null) {
+          System.out.println("Open job entry : "+entryname);
+          JobMeta jobMeta = jobGraph.getJobMeta();
+          JobEntryCopy jobEntryCopy = jobMeta.findJobEntry( entryname );
+          if (jobEntryCopy!=null) {
+            jobMeta.unselectAll();
+            jobEntryCopy.setSelected( true );
+            spoon.editJobEntry(jobMeta, jobEntryCopy);
+          } else {
+            System.out.println("job entry not found!");
+          }
+        }
+      }
+    }
+  }
+
+  private void openTransformationOrJob( String nodeLabel, String relationship ) {
     Map<String, Object> params = new HashMap<>();
     params.put( "subjectName", linkedExecution.getName() );
     params.put( "subjectType", linkedExecution.getType() );
@@ -579,16 +690,17 @@ public class HistoryResultsDialog {
 
     StatementResult statementResult = session.run( cypher.toString(), params );
     if (!statementResult.hasNext()) {
+      statementResult.consume();
       return; // No file found
     }
     Record record = statementResult.next();
-    filename = LoggingCore.getStringValue( record, 0 );
+    String filename = LoggingCore.getStringValue( record, 0 );
+    statementResult.consume();
 
     if ( StringUtils.isNotEmpty(filename)) {
       Spoon.getInstance().openFile( filename, false );
       close();
     }
-
   }
 
   private class TreeIndexes {
@@ -684,9 +796,7 @@ public class HistoryResultsDialog {
 
       DataNode startNode = currentDataModel.findNodeWithProperty( "root", true);
       if (startNode==null) {
-        if (historyResult!=null) {
-          startNode = currentDataModel.findNode( historyResult.getId() );
-        }
+        startNode = currentDataModel.findTopNode("EXECUTES");
       }
 
       if (startNode!=null) {
@@ -755,14 +865,27 @@ public class HistoryResultsDialog {
       wOpen.setText( "Go to transformation" );
       wOpen.setEnabled( true );
       linkedExecution = execution;
-      linkedTransformation = true;
+    } else if ( LoggingObjectType.STEP.name().equalsIgnoreCase(execution.getType())) {
+      // A transformation
+      //
+      wOpen.setText( "Go to step" );
+      wOpen.setEnabled( true );
+      linkedExecution = execution;
     } else if ( LoggingObjectType.JOB.name().equalsIgnoreCase(execution.getType())) {
       // A transformation
       //
       wOpen.setText( "Go to job" );
       wOpen.setEnabled( true );
       linkedExecution = execution;
-      linkedTransformation = false;
+    } else if ( LoggingObjectType.JOBENTRY.name().equalsIgnoreCase(execution.getType())) {
+      // A transformation
+      //
+      wOpen.setText( "Go to job entry" );
+      wOpen.setEnabled( true );
+      linkedExecution = execution;
+    } else {
+      wOpen.setEnabled( false );
+      linkedExecution = null;
     }
   }
 
@@ -776,6 +899,7 @@ public class HistoryResultsDialog {
    */
   private String showLogging( HistoryResult hr, boolean root, int pathIndex, boolean errorPath) {
     String cypher = null;
+    String metaCypher = null;
 
     StringBuilder log = new StringBuilder();
     log.append( "Name:      " + hr.getName() ).append( Const.CR );
@@ -818,7 +942,8 @@ public class HistoryResultsDialog {
     if (hr.getShortestPaths().size()>pathIndex) {
       log.append( "Shortest path including metadata: " ).append( Const.CR );
       log.append("--------------------------------------------").append(Const.CR);
-      cypher = hr.getShortestPathWithMetadataCommand( pathIndex);
+      metaCypher = hr.getShortestPathWithMetadataCommand( pathIndex);
+      cypher = metaCypher;
       log.append( cypher );
       System.out.println(">>>>> GOT SHORTEST PATH WITH METADATA!");
       log.append( Const.CR );
@@ -832,6 +957,11 @@ public class HistoryResultsDialog {
 
     if (errorPath) {
       cypher = errorCypher;
+
+      /*if (metaCypher!=null) {
+        cypher = metaCypher;
+      }
+      */
     }
 
     return cypher;

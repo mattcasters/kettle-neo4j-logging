@@ -190,6 +190,52 @@ public class DataModel {
     return null;
   }
 
+  public List<DataRelationship> findRelationships(String label) {
+    List<DataRelationship> rels = new ArrayList<>(  );
+    for (DataRelationship relationship : relationships) {
+      if (relationship.getLabel().equals( label )) {
+        rels.add(relationship);
+      }
+    }
+    return rels;
+  }
+
+  public DataNode findTopNode( String labelToFollow) {
+
+    // Start from any relationship with given label
+    //
+    List<DataRelationship> rels = findRelationships( labelToFollow );
+    System.out.println("Found "+rels.size()+" relationships for "+labelToFollow);
+    if ( rels.size()==0) {
+      return null;
+    }
+    DataRelationship rel = rels.get(0);
+    DataNode node = null;
+    while (rel!=null) {
+      node = findNode( rel.getNodeSource() );
+      rel = findRelationshipsWithTarget( rels, node.getId() );
+    }
+    return node;
+  }
+
+  public DataRelationship findRelationshipsWithTarget(List<DataRelationship> rels, String targetId ) {
+    for (DataRelationship relationship : rels) {
+      if (relationship.getNodeTarget().equals( targetId )) {
+        return relationship;
+      }
+    }
+    return null;
+  }
+
+  public DataRelationship findRelationshipsWithSource(List<DataRelationship> rels, String sourceId ) {
+    for (DataRelationship relationship : rels) {
+      if (relationship.getNodeSource().equals( sourceId)) {
+        return relationship;
+      }
+    }
+    return null;
+  }
+
   public interface BestScoreListener {
     public void newBestScoreFound( Scoring scoring, DataModel dataModel );
   }
