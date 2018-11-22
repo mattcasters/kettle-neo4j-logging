@@ -205,7 +205,7 @@ public class DataModel {
     // Start from any relationship with given label
     //
     List<DataRelationship> rels = findRelationships( labelToFollow );
-    System.out.println("Found "+rels.size()+" relationships for "+labelToFollow);
+    // System.out.println("Found "+rels.size()+" relationships for "+labelToFollow);
     if ( rels.size()==0) {
       return null;
     }
@@ -470,7 +470,7 @@ public class DataModel {
 
     bestScore.iterations = iterations;
 
-    System.out.println( ">>>>>>>>>>> Chosen distance=" + (long) optDistance + ", nrNodes=" + nrNodes + ", Final Score: " + bestScore );
+    // System.out.println( ">>>>>>>>>>> Chosen distance=" + (long) optDistance + ", nrNodes=" + nrNodes + ", Final Score: " + bestScore );
 
     return bestScore;
   }
@@ -478,22 +478,52 @@ public class DataModel {
   private java.util.List<Point> calculateNodeSizes(Display display) {
     java.util.List<Point> sizes = new ArrayList<>();
 
-    Image image = new Image( display, 100, 100 );
-    GC gc = new GC( image );
-    gc.setFont( GUIResource.getInstance().getFontMediumBold() );
+    Image image = null;
+    GC gc = null;
+    try {
+      image = new Image( display, 100, 100 );
+      gc = new GC( image );
+      gc.setFont( GUIResource.getInstance().getFontMediumBold() );
+    } catch(Throwable e) {
+      gc = null;
+      image = null;
+    }
 
     for ( DataNode node : nodes ) {
-      Point textExtent = gc.textExtent( node.getNodeText() );
+      Point textExtent = null;
+      if (image!=null && gc!=null) {
+        textExtent = gc.textExtent( node.getNodeText() );
+      } else {
+        textExtent = calculateServerSize(node.getNodeText());
+      }
 
       int width = textExtent.x + 2 * 10; // 10 : margin
       int height = textExtent.y + 2 * 10;
 
       sizes.add( new Point( width, height ) );
     }
-    gc.dispose();
-    image.dispose();
+    if (gc!=null) {
+      gc.dispose();
+    }
+    if (image!=null) {
+      image.dispose();
+    }
 
     return sizes;
+  }
+
+  private Point calculateServerSize( String nodeText ) {
+    int characterWidth = 10;
+    int characterHeight = 10;
+
+    int maxLength = 0;
+    String[] lines = nodeText.split( Const.CR );
+    for (String line : lines) {
+      if (line.length()>maxLength) {
+        maxLength = line.length();
+      }
+    }
+    return new Point(maxLength*characterWidth, lines.length*characterHeight);
   }
 
   private Map<String, Integer> nodeCache;

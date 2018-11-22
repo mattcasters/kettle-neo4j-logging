@@ -356,7 +356,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         StringBuilder pathCypher = new StringBuilder();
         if (errorPath) {
 
-          System.out.println( "Error path top ID : "+subjectLogChannelId );
+          // System.out.println( "Error path top ID : "+subjectLogChannelId );
 
           pathCypher.append( "MATCH(top:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}})-[rel:EXECUTES*]-(err:Execution) " );
           pathCypher.append( "   , p=shortestpath((top)-[:EXECUTES*]-(err)) " );
@@ -380,7 +380,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         List<List<HistoryResult>> shortestPaths = execution.getShortestPaths();
 
         while ( pathResult.hasNext() ) {
-          System.out.println("Path found!");
+          // System.out.println("Path found!");
           Record pathRecord = pathResult.next();
           Value pathValue = pathRecord.get( 0 );
           Path path = pathValue.asPath();
@@ -389,7 +389,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
             HistoryResult pathExecution = new HistoryResult();
             pathExecution.setId( LoggingCore.getStringValue( node, "id" ) );
             pathExecution.setName( LoggingCore.getStringValue( node, "name" ) );
-            System.out.println(" - Node name : "+pathExecution.getName());
+            // System.out.println(" - Node name : "+pathExecution.getName());
             pathExecution.setType( LoggingCore.getStringValue( node, "type" ) );
             pathExecution.setCopy( LoggingCore.getStringValue( node, "copy" ) );
             pathExecution.setRegistrationDate( LoggingCore.getStringValue( node, "registrationDate" ) );
