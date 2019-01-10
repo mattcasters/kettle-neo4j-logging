@@ -24,10 +24,6 @@ package com.neo4j.kettle.spoon;
 
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.model.DataModel;
-import com.neo4j.kettle.model.DataNode;
-import com.neo4j.kettle.model.DataProperty;
-import com.neo4j.kettle.model.DataRelationship;
 import com.neo4j.kettle.shared.NeoConnection;
 import com.neo4j.kettle.spoon.history.HistoryResult;
 import com.neo4j.kettle.spoon.history.HistoryResults;
@@ -40,7 +36,6 @@ import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.types.Node;
 import org.neo4j.driver.v1.types.Path;
-import org.neo4j.driver.v1.types.Relationship;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
@@ -80,6 +75,13 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     if ( instance == null ) {
       instance = new NeoLoggingHelper(); ;
       instance.spoon.addSpoonMenuController( instance );
+      loadConnectionDriver();
+    }
+    return instance;
+  }
+
+  private static void loadConnectionDriver() {
+    if ( instance.connection == null || instance.driver == null ) {
       try {
         instance.connection = loadConnection();
         if ( instance.connection != null ) {
@@ -91,7 +93,6 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         instance.driver = null;
       }
     }
-    return instance;
   }
 
   public String getName() {
@@ -119,6 +120,8 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
   }
 
   public void examineStepLogs( boolean errorsOnly ) {
+    loadConnectionDriver();
+
     try {
       TransGraph transGraph = spoon.getActiveTransGraph();
       TransMeta transMeta = spoon.getActiveTransformation();
@@ -141,8 +144,6 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         session = driver.session();
         lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly, false );
 
-        testGraphReturns( session, historyResults );
-
         HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
         historyResultsDialog.open();
 
@@ -156,36 +157,14 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     }
   }
 
-  private void testGraphReturns( Session session, HistoryResults historyResults ) {
-
-    // Test, won't always work
-    //
-    String cypher = historyResults.getLastExecutions().get( 0 ).getShortestPathWithMetadataCommand( 0 );
-
-    StatementResult result = session.run( cypher );
-
-    /*
-    while (result.hasNext()) {
-      Record record = result.next();
-      System.out.println( "Found record : "+record.size()+" values");
-      for (String key : record.keys()) {
-        Value value = record.get( key );
-        System.out.println( "  - "+key+": "+value.type().name());
-      }
-    }
-    */
-
-    DataModel graphModel = new DataModel( "Execution and metadata", result );
-
-  }
-
   public void showLogging() {
+    loadConnectionDriver();
     if ( driver == null || connection == null ) {
       return;
     }
 
     try {
-      HistoryResults historyResults = getParentHistoryResults(spoon, "Execution history");
+      HistoryResults historyResults = getParentHistoryResults( spoon, "Execution history" );
 
       if ( historyResults != null ) {
         Session session = null;
@@ -220,7 +199,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       historyResults.setSubjectCopy( null );
       historyResults.setParentName( null );
       historyResults.setParentType( null );
-      historyResults.setTopic( baseMessage+" of job'" + jobMeta.getName() + "'" );
+      historyResults.setTopic( baseMessage + " of job'" + jobMeta.getName() + "'" );
     }
     TransGraph transGraph = spoon.getActiveTransGraph();
     if ( transGraph != null ) {
@@ -232,7 +211,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       historyResults.setSubjectCopy( null );
       historyResults.setParentName( null );
       historyResults.setParentType( null );
-      historyResults.setTopic( baseMessage+" of transformation'" + transMeta.getName() + "'" );
+      historyResults.setTopic( baseMessage + " of transformation'" + transMeta.getName() + "'" );
     }
 
     return historyResults;
@@ -247,6 +226,8 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
   }
 
   public void examineJobEntryLogs( boolean errorsOnly ) {
+    loadConnectionDriver();
+
     try {
       JobGraph jobGraph = spoon.getActiveJobGraph();
       JobMeta jobMeta = spoon.getActiveJob();
@@ -354,7 +335,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
         pathParams.put( "subjectId", subjectLogChannelId );
 
         StringBuilder pathCypher = new StringBuilder();
-        if (errorPath) {
+        if ( errorPath ) {
 
           // System.out.println( "Error path top ID : "+subjectLogChannelId );
 
@@ -402,7 +383,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
             pathExecution.setLoggingText( LoggingCore.getStringValue( node, "loggingText" ) );
             pathExecution.setDurationMs( LoggingCore.getLongValue( node, "durationMs" ) );
 
-            if (errorPath) {
+            if ( errorPath ) {
               shortestPath.add( 0, pathExecution );
             } else {
               shortestPath.add( pathExecution );
@@ -423,6 +404,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
    * Then display the shortest path to that.
    */
   public void findError() {
+    loadConnectionDriver();
     if ( driver == null || connection == null ) {
       return;
     }
@@ -444,10 +426,21 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults, true );
       historyResultsDialog.open();
 
-    } catch(Exception e) {
-      new ErrorDialog(spoon.getShell(), "Error", "Error finding error path", e);
+    } catch ( Exception e ) {
+      new ErrorDialog( spoon.getShell(), "Error", "Error finding error path", e );
     } finally {
       session.close();
     }
+  }
+
+  /**
+   * Used when switching environments in Spoon
+   */
+  public void resetConnectionDriver() {
+    if (driver!=null) {
+      driver.close();
+      driver = null;
+    }
+    connection = null;
   }
 }
