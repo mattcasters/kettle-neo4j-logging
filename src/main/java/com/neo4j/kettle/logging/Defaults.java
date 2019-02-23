@@ -8,4 +8,7 @@ public class Defaults {
 
   public static String TRANS_NODE_UPDATES_GROUP = "NODE_UPDATES";
 
+  public static final String VARIABLE_NEO4J_LOGGING_CONNECTION_DISABLED = "-";
+
+
 }

@@ -33,7 +33,9 @@ public class LoggingCore {
 
   public static final boolean isEnabled( VariableSpace space ) {
     String connectionName = space.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION );
-    return StringUtils.isNotEmpty(connectionName);
+    return
+      StringUtils.isNotEmpty(connectionName) &&
+      !Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION_DISABLED.equals(connectionName) ;
   }
 
   public static final NeoConnection getConnection( IMetaStore metaStore, VariableSpace space) throws MetaStoreException {
