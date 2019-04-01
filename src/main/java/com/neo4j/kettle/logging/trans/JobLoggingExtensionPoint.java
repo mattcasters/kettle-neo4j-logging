@@ -11,7 +11,6 @@ import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.extension.ExtensionPoint;
 import org.pentaho.di.core.extension.ExtensionPointInterface;
 import org.pentaho.di.core.logging.KettleLogStore;
-import org.pentaho.di.core.logging.LogChannel;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.logging.LoggingHierarchy;
 import org.pentaho.di.core.logging.LoggingObjectType;
@@ -54,9 +53,15 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
+    // We only log after a top level job is done.
+    //
+    if ( job.getParentJob() != null || job.getParentTrans() != null ) {
+      return;
+    }
+
     // Keep the start date
     //
-    job.getExtensionDataMap().put(JOB_START_DATE, new Date());
+    job.getExtensionDataMap().put( JOB_START_DATE, new Date() );
 
     try {
 
@@ -77,9 +82,7 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
 
           // If there are no other parents, we now have the complete log channel hierarchy
           //
-          if ( job.getParentJob() == null && job.getParentTrans() == null ) {
-            logHierarchy( log, session, connection, job.getLoggingHierarchy(), job.getLogChannelId() );
-          }
+          logHierarchy( log, session, connection, job.getLoggingHierarchy(), job.getLogChannelId() );
         }
       } );
 
@@ -243,7 +246,7 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             String jobLoggingText = KettleLogStore.getAppender().getBuffer( jobLogChannelId, true ).toString();
 
             Date endDate = new Date();
-            job.getExtensionDataMap().put(JOB_END_DATE, new Date());
+            job.getExtensionDataMap().put( JOB_END_DATE, new Date() );
             Date startDate = (Date) job.getExtensionDataMap().get( JOB_START_DATE );
 
             Map<String, Object> jobPars = new HashMap<>();

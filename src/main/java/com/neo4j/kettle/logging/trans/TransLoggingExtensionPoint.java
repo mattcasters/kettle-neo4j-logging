@@ -57,19 +57,24 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
     // Keep the start date
     //
-    trans.getExtensionDataMap().put(TRANS_START_DATE, new Date());
+    trans.getExtensionDataMap().put( TRANS_START_DATE, new Date() );
 
+    // We only log after a top level transformation is done.
+    //
+    if ( trans.getParentJob() != null || trans.getParentTrans() != null ) {
+      return;
+    }
 
     try {
 
       // Which connection are we logging to?
       //
       final NeoConnection connection = LoggingCore.getConnection( trans.getMetaStore(), trans );
-      if (connection==null) {
-        log.logError("Unable to find Neo4j connection to log to : "+trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION ));
+      if ( connection == null ) {
+        log.logError( "Unable to find Neo4j connection to log to : " + trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION ) );
         return;
       }
-      log.logDetailed("Logging transformation information to Neo4j connection : "+connection.getName());
+      log.logDetailed( "Logging transformation information to Neo4j connection : " + connection.getName() );
 
       Session session = LoggingSession.getInstance().getSession( connection );
 
@@ -82,22 +87,22 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
           // If there are no other parents, we now have the complete log channel hierarchy
           //
-          if ( trans.getParentJob() == null && trans.getParentTrans() == null ) {
-            logHierarchy( log, session, connection, trans.getLoggingHierarchy(), trans.getLogChannelId() );
-          }
+          logHierarchy( log, session, connection, trans.getLoggingHierarchy(), trans.getLogChannelId() );
         }
       } );
 
-    } catch ( Exception e ) {
+    } catch (
+      Exception e ) {
       // Let's not kill the transformation just yet, just log the error
       // otherwise: throw new KettleException(...);
       //
       log.logError( "Error logging to Neo4j:", e );
     }
+
   }
 
-  private void logTransformationMetadata( final LogChannelInterface log, final Session session, final NeoConnection connection, final Trans trans) throws KettleException {
-    log.logDetailed("Logging transformation metadata to Neo4j connection : "+connection.getName());
+  private void logTransformationMetadata( final LogChannelInterface log, final Session session, final NeoConnection connection, final Trans trans ) throws KettleException {
+    log.logDetailed( "Logging transformation metadata to Neo4j connection : " + connection.getName() );
 
     final TransMeta transMeta = trans.getTransMeta();
 
@@ -181,7 +186,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
   }
 
   private void logStartOfTransformation( final LogChannelInterface log, final Session session, final NeoConnection connection, final Trans trans ) throws KettleException {
-    log.logDetailed("Logging execution start of transformation to Neo4j connection : "+connection.getName());
+    log.logDetailed( "Logging execution start of transformation to Neo4j connection : " + connection.getName() );
 
     final TransMeta transMeta = trans.getTransMeta();
 
@@ -194,14 +199,14 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             // Start with the transformation
             //
             LogChannelInterface channel = trans.getLogChannel();
-            Date startDate = (Date) trans.getExtensionDataMap().get(TRANS_START_DATE);
+            Date startDate = (Date) trans.getExtensionDataMap().get( TRANS_START_DATE );
 
             Map<String, Object> transPars = new HashMap<>();
             transPars.put( "transName", transMeta.getName() );
             transPars.put( "id", channel.getLogChannelId() );
             transPars.put( "type", EXECUTION_TYPE_TRANSFORMATION );
             transPars.put( "executionStart", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( startDate ) );
-            transPars.put( "status", trans.getStatus());
+            transPars.put( "status", trans.getStatus() );
 
             StringBuilder transCypher = new StringBuilder();
             transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
@@ -243,8 +248,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             String transLogChannelId = trans.getLogChannelId();
             String transLoggingText = KettleLogStore.getAppender().getBuffer( transLogChannelId, false ).toString();
             Date endDate = new Date();
-            trans.getExtensionDataMap().put(TRANS_END_DATE, endDate);
-            Date startDate = (Date) trans.getExtensionDataMap().get(TRANS_START_DATE);
+            trans.getExtensionDataMap().put( TRANS_END_DATE, endDate );
+            Date startDate = (Date) trans.getExtensionDataMap().get( TRANS_START_DATE );
 
             Map<String, Object> transPars = new HashMap<>();
             transPars.put( "transName", transMeta.getName() );
@@ -259,7 +264,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "linesWritten", result.getNrLinesWritten() );
             transPars.put( "linesRejected", result.getNrLinesRejected() );
             transPars.put( "loggingText", transLoggingText );
-            transPars.put( "status", trans.getStatus());
+            transPars.put( "status", trans.getStatus() );
 
             StringBuilder transCypher = new StringBuilder();
             transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
@@ -323,8 +328,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               // This Map is left by the Neo4j step plugins : Neo4j Output and Neo4j Graph Output
               //
               Map<String, Map<String, Set<String>>> usageMap = (Map<String, Map<String, Set<String>>>) trans.getExtensionDataMap().get( Defaults.TRANS_NODE_UPDATES_GROUP );
-              if (usageMap!=null) {
-                for (String graphUsage : usageMap.keySet()) {
+              if ( usageMap != null ) {
+                for ( String graphUsage : usageMap.keySet() ) {
                   Map<String, Set<String>> stepsMap = usageMap.get( graphUsage );
 
                   Set<String> labels = stepsMap.get( combi.stepname );
@@ -334,15 +339,15 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
                       //
                       Map<String, Object> usagePars = new HashMap<>();
                       usagePars.put( "step", combi.stepname );
-                      usagePars.put( "type", "STEP");
+                      usagePars.put( "type", "STEP" );
                       usagePars.put( "id", stepLogChannelId );
                       usagePars.put( "label", label );
-                      usagePars.put( "usage", graphUsage);
+                      usagePars.put( "usage", graphUsage );
 
                       StringBuilder usageCypher = new StringBuilder();
                       usageCypher.append( "MATCH (step:Execution { name : {step}, type : {type}, id : {id} } ) " );
                       usageCypher.append( "MERGE (usage:Usage { usage : {usage}, label : {label} } ) " );
-                      usageCypher.append( "MERGE (step)-[r:PERFORMS_"+graphUsage+"]->(usage)" );
+                      usageCypher.append( "MERGE (step)-[r:PERFORMS_" + graphUsage + "]->(usage)" );
 
                       transaction.run( usageCypher.toString(), usagePars );
                     }
@@ -364,7 +369,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
 
   private void logHierarchy( final LogChannelInterface log, final Session session, final NeoConnection connection,
-                             final List<LoggingHierarchy> hierarchies, String rootLogChannelId  ) {
+                             final List<LoggingHierarchy> hierarchies, String rootLogChannelId ) {
     synchronized ( session ) {
       session.writeTransaction( new TransactionWork<Void>() {
         @Override public Void execute( Transaction transaction ) {
