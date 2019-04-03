@@ -3,7 +3,9 @@ package com.neo4j.kettle.logging.trans;
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
 import com.neo4j.kettle.logging.util.LoggingSession;
+import com.neo4j.kettle.logging.util.MetaStoreUtil;
 import com.neo4j.kettle.shared.NeoConnection;
+import org.apache.commons.lang.StringUtils;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.TransactionWork;
@@ -21,6 +23,7 @@ import org.pentaho.di.trans.TransHopMeta;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.trans.step.StepMetaDataCombi;
+import org.pentaho.metastore.api.IMetaStore;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -65,13 +68,20 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
+    String connectionName = trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION );
+
     try {
 
       // Which connection are we logging to?
       //
-      final NeoConnection connection = LoggingCore.getConnection( trans.getMetaStore(), trans );
+      IMetaStore metaStore = MetaStoreUtil.findMetaStore( trans );
+      if (metaStore==null) {
+        log.logBasic( "Warning! Unable to find a metastore to load Neo4j connection to log to '" + connectionName +"'" );
+        return;
+      }
+      final NeoConnection connection = LoggingCore.getConnection( metaStore, trans );
       if ( connection == null ) {
-        log.logError( "Unable to find Neo4j connection to log to : " + trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION ) );
+        log.logBasic( "Warning! Unable to find Neo4j connection to log to : " + connectionName );
         return;
       }
       log.logDetailed( "Logging transformation information to Neo4j connection : " + connection.getName() );
