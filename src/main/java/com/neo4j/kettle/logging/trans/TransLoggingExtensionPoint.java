@@ -62,11 +62,6 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
     //
     trans.getExtensionDataMap().put( TRANS_START_DATE, new Date() );
 
-    // We only log after a top level transformation is done.
-    //
-    if ( trans.getParentJob() != null || trans.getParentTrans() != null ) {
-      return;
-    }
 
     String connectionName = trans.getVariable( Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION );
 
@@ -97,7 +92,9 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
           // If there are no other parents, we now have the complete log channel hierarchy
           //
-          logHierarchy( log, session, connection, trans.getLoggingHierarchy(), trans.getLogChannelId() );
+          if ( trans.getParentJob() == null && trans.getParentTrans() == null ) {
+            logHierarchy( log, session, connection, trans.getLoggingHierarchy(), trans.getLogChannelId() );
+          }
         }
       } );
 

@@ -56,12 +56,6 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
       return;
     }
 
-    // We only log after a top level job is done.
-    //
-    if ( job.getParentJob() != null || job.getParentTrans() != null ) {
-      return;
-    }
-
     // Keep the start date
     //
     job.getExtensionDataMap().put( JOB_START_DATE, new Date() );
@@ -96,7 +90,9 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
 
           // If there are no other parents, we now have the complete log channel hierarchy
           //
-          logHierarchy( log, session, connection, job.getLoggingHierarchy(), job.getLogChannelId() );
+          if ( job.getParentJob() == null && job.getParentTrans() == null ) {
+            logHierarchy( log, session, connection, job.getLoggingHierarchy(), job.getLogChannelId() );
+          }
         }
       } );
 
