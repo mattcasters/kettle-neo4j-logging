@@ -7,12 +7,12 @@ import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.widgets.Display;
-import org.neo4j.driver.v1.Record;
-import org.neo4j.driver.v1.StatementResult;
-import org.neo4j.driver.v1.Value;
-import org.neo4j.driver.v1.types.Node;
-import org.neo4j.driver.v1.types.Path;
-import org.neo4j.driver.v1.types.Relationship;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.Value;
+import org.neo4j.driver.types.Node;
+import org.neo4j.driver.types.Path;
+import org.neo4j.driver.types.Relationship;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.ui.core.gui.GUIResource;
 
@@ -132,7 +132,7 @@ public class DataModel {
     return null;
   }
 
-  public DataModel( String modelName, StatementResult result ) {
+  public DataModel( String modelName, Result result ) {
     this();
 
     setName( modelName );

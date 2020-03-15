@@ -1,8 +1,8 @@
 package com.neo4j.kettle.model;
 
 import org.eclipse.swt.graphics.Point;
-import org.neo4j.driver.v1.Value;
-import org.neo4j.driver.v1.types.Node;
+import org.neo4j.driver.Value;
+import org.neo4j.driver.types.Node;
 import org.pentaho.di.core.Const;
 
 import java.util.ArrayList;

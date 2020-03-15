@@ -1,6 +1,6 @@
 package com.neo4j.kettle.model;
 
-import org.neo4j.driver.v1.types.Relationship;
+import org.neo4j.driver.types.Relationship;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -2,13 +2,11 @@ package com.neo4j.kettle.logging.trans;
 
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.logging.util.LoggingSession;
 import com.neo4j.kettle.logging.util.MetaStoreUtil;
-import com.neo4j.kettle.shared.NeoConnection;
-import org.apache.commons.lang.StringUtils;
-import org.neo4j.driver.v1.Session;
-import org.neo4j.driver.v1.Transaction;
-import org.neo4j.driver.v1.TransactionWork;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Transaction;
+import org.neo4j.driver.TransactionWork;
+import org.neo4j.kettle.shared.NeoConnection;
 import org.pentaho.di.core.Result;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.extension.ExtensionPoint;
@@ -81,7 +79,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
       }
       log.logDetailed( "Logging transformation information to Neo4j connection : " + connection.getName() );
 
-      Session session = LoggingSession.getInstance().getSession( connection );
+      Session session = connection.getSession( log );
 
       logTransformationMetadata( log, session, connection, trans );
       logStartOfTransformation( log, session, connection, trans );
@@ -123,8 +121,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "description", transMeta.getDescription() );
             transPars.put( "filename", transMeta.getFilename() );
             StringBuilder transCypher = new StringBuilder();
-            transCypher.append( "MERGE (trans:Transformation { name : {transName}} ) " );
-            transCypher.append( "SET trans.filename = {filename}, trans.description = {description} " );
+            transCypher.append( "MERGE (trans:Transformation { name : $transName } ) " );
+            transCypher.append( "SET trans.filename = $filename, trans.description = $description " );
             transaction.run( transCypher.toString(), transPars );
 
             log.logDetailed( "Trans cypher : " + transCypher );
@@ -133,7 +131,7 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
 
               Map<String, Object> stepPars = new HashMap<>();
               stepPars.put( "transName", transMeta.getName() );
-              stepPars.put( "name", stepMeta.getName() );
+              stepPars.put( "stepName", stepMeta.getName() );
               stepPars.put( "description", stepMeta.getDescription() );
               stepPars.put( "pluginId", stepMeta.getStepID() );
               stepPars.put( "copies", stepMeta.getCopies() );
@@ -142,15 +140,15 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               stepPars.put( "drawn", stepMeta.isDrawn() );
 
               StringBuilder stepCypher = new StringBuilder();
-              stepCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
-              stepCypher.append( "MERGE (step:Step { transName : {transName}, name : {name}}) " );
+              stepCypher.append( "MATCH (trans:Transformation { name : $transName } ) " );
+              stepCypher.append( "MERGE (step:Step { transName : $transName, name : $stepName } ) " );
               stepCypher.append( "SET " );
-              stepCypher.append( "   step.description = {description} " );
-              stepCypher.append( ", step.pluginId = {pluginId} " );
-              stepCypher.append( ", step.copies = {copies} " );
-              stepCypher.append( ", step.locationX = {locationX} " );
-              stepCypher.append( ", step.locationY = {locationY} " );
-              stepCypher.append( ", step.drawn = {drawn} " );
+              stepCypher.append( "  step.description = $description " );
+              stepCypher.append( ", step.pluginId = $pluginId " );
+              stepCypher.append( ", step.copies = $copies " );
+              stepCypher.append( ", step.locationX = $locationX " );
+              stepCypher.append( ", step.locationY = $locationY " );
+              stepCypher.append( ", step.drawn = $drawn " );
 
               // Also MERGE the relationship
               //
@@ -174,15 +172,15 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               hopPars.put( "transName", transMeta.getName() );
 
               StringBuilder hopCypher = new StringBuilder();
-              hopCypher.append( "MATCH (from:Step { transName : {transName}, name : {fromStep}}) " );
-              hopCypher.append( "MATCH (to:Step { transName : {transName}, name : {toStep}}) " );
+              hopCypher.append( "MATCH (from:Step { transName : $transName, name : $fromStep }) " );
+              hopCypher.append( "MATCH (to:Step { transName : $transName, name : $toStep }) " );
               hopCypher.append( "MERGE (from)-[rel:WRITES_TO]->(to) " );
               transaction.run( hopCypher.toString(), hopPars );
             }
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging transformation metadata", e );
           }
           return null;
@@ -216,18 +214,18 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "status", trans.getStatus() );
 
             StringBuilder transCypher = new StringBuilder();
-            transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
-            transCypher.append( "MERGE (exec:Execution { name : {transName}, type : {type}, id : {id}} ) " );
+            transCypher.append( "MATCH (trans:Transformation { name : $transName } ) " );
+            transCypher.append( "MERGE (exec:Execution { name : $transName, type : $type, id : $id } ) " );
             transCypher.append( "SET " );
-            transCypher.append( "  exec.executionStart = {executionStart} " );
-            transCypher.append( ", exec.status = {status} " );
+            transCypher.append( "  exec.executionStart = $executionStart " );
+            transCypher.append( ", exec.status = $status " );
             transCypher.append( "MERGE (exec)-[r:EXECUTION_OF_TRANSFORMATION]->(trans) " );
 
             transaction.run( transCypher.toString(), transPars );
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging transformation start", e );
           }
 
@@ -274,19 +272,19 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
             transPars.put( "status", trans.getStatus() );
 
             StringBuilder transCypher = new StringBuilder();
-            transCypher.append( "MATCH (trans:Transformation { name : {transName}} ) " );
-            transCypher.append( "MERGE (exec:Execution { name : {transName}, type : {type}, id : {id}} ) " );
+            transCypher.append( "MATCH (trans:Transformation { name : $transName } ) " );
+            transCypher.append( "MERGE (exec:Execution { name : $transName, type : $type, id : $id } ) " );
             transCypher.append( "SET " );
-            transCypher.append( "  exec.executionEnd = {executionEnd} " );
-            transCypher.append( ", exec.durationMs = {durationMs} " );
-            transCypher.append( ", exec.status = {status} " );
-            transCypher.append( ", exec.errors = {errors} " );
-            transCypher.append( ", exec.linesInput = {linesInput} " );
-            transCypher.append( ", exec.linesOutput = {linesOutput} " );
-            transCypher.append( ", exec.linesRead = {linesRead} " );
-            transCypher.append( ", exec.linesWritten = {linesWritten} " );
-            transCypher.append( ", exec.linesRejected = {linesRejected} " );
-            transCypher.append( ", exec.loggingText = {loggingText} " );
+            transCypher.append( "  exec.executionEnd = $executionEnd " );
+            transCypher.append( ", exec.durationMs = $durationMs " );
+            transCypher.append( ", exec.status = $status " );
+            transCypher.append( ", exec.errors = $errors " );
+            transCypher.append( ", exec.linesInput = $linesInput " );
+            transCypher.append( ", exec.linesOutput = $linesOutput " );
+            transCypher.append( ", exec.linesRead = $linesRead " );
+            transCypher.append( ", exec.linesWritten = $linesWritten " );
+            transCypher.append( ", exec.linesRejected = $linesRejected " );
+            transCypher.append( ", exec.loggingText = $loggingText " );
             transCypher.append( "MERGE (exec)-[r:EXECUTION_OF_TRANSFORMATION]->(trans) " );
 
             transaction.run( transCypher.toString(), transPars );
@@ -314,19 +312,19 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               stepPars.put( "linesRejected", combi.step.getLinesRejected() );
 
               StringBuilder stepCypher = new StringBuilder();
-              stepCypher.append( "MATCH (step:Step { transName : {transName}, name : {name} } ) " );
-              stepCypher.append( "MERGE (exec:Execution { name : {name}, type : {type}, id : {id}} ) " );
+              stepCypher.append( "MATCH (step:Step { transName : $transName, name : $name } ) " );
+              stepCypher.append( "MERGE (exec:Execution { name : $name, type : $type, id : $id } ) " );
               stepCypher.append( "SET " );
-              stepCypher.append( "  exec.transId = {transId} " );
-              stepCypher.append( ", exec.copy = {copy} " );
-              stepCypher.append( ", exec.status = {status} " );
-              stepCypher.append( ", exec.loggingText = {loggingText} " );
-              stepCypher.append( ", exec.errors = {errors} " );
-              stepCypher.append( ", exec.linesRead = {linesRead} " );
-              stepCypher.append( ", exec.linesWritten = {linesWritten} " );
-              stepCypher.append( ", exec.linesInput = {linesInput} " );
-              stepCypher.append( ", exec.linesOutput = {linesOutput} " );
-              stepCypher.append( ", exec.linesRejected = {linesRejected} " );
+              stepCypher.append( "  exec.transId = $transId " );
+              stepCypher.append( ", exec.copy = $copy " );
+              stepCypher.append( ", exec.status = $status " );
+              stepCypher.append( ", exec.loggingText = $loggingText " );
+              stepCypher.append( ", exec.errors = $errors " );
+              stepCypher.append( ", exec.linesRead = $linesRead " );
+              stepCypher.append( ", exec.linesWritten = $linesWritten " );
+              stepCypher.append( ", exec.linesInput = $linesInput " );
+              stepCypher.append( ", exec.linesOutput = $linesOutput " );
+              stepCypher.append( ", exec.linesRejected = $linesRejected " );
               stepCypher.append( "MERGE (exec)-[r:EXECUTION_OF_STEP]->(step) " );
 
               transaction.run( stepCypher.toString(), stepPars );
@@ -352,8 +350,8 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
                       usagePars.put( "usage", graphUsage );
 
                       StringBuilder usageCypher = new StringBuilder();
-                      usageCypher.append( "MATCH (step:Execution { name : {step}, type : {type}, id : {id} } ) " );
-                      usageCypher.append( "MERGE (usage:Usage { usage : {usage}, label : {label} } ) " );
+                      usageCypher.append( "MATCH (step:Execution { name : $step, type : $type, id : $id } ) " );
+                      usageCypher.append( "MERGE (usage:Usage { usage : $usage, label : $label } ) " );
                       usageCypher.append( "MERGE (step)-[r:PERFORMS_" + graphUsage + "]->(usage)" );
 
                       transaction.run( usageCypher.toString(), usagePars );
@@ -363,9 +361,9 @@ public class TransLoggingExtensionPoint implements ExtensionPointInterface {
               }
             }
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging transformation end", e );
           }
           return null;

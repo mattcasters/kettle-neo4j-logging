@@ -2,12 +2,11 @@ package com.neo4j.kettle.logging.trans;
 
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.logging.util.LoggingSession;
 import com.neo4j.kettle.logging.util.MetaStoreUtil;
-import com.neo4j.kettle.shared.NeoConnection;
-import org.neo4j.driver.v1.Session;
-import org.neo4j.driver.v1.Transaction;
-import org.neo4j.driver.v1.TransactionWork;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Transaction;
+import org.neo4j.driver.TransactionWork;
+import org.neo4j.kettle.shared.NeoConnection;
 import org.pentaho.di.core.Result;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.extension.ExtensionPoint;
@@ -78,7 +77,7 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
       }
       log.logDetailed( "Logging job information to Neo4j connection : " + connection.getName() );
 
-      Session session = LoggingSession.getInstance().getSession( connection );
+      Session session = connection.getSession( log );
 
       logJobMetadata( log, session, connection, job );
       logStartOfJob( log, session, connection, job );
@@ -119,8 +118,8 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             jobPars.put( "description", jobMeta.getDescription() );
             jobPars.put( "filename", jobMeta.getFilename() );
             StringBuilder jobCypher = new StringBuilder();
-            jobCypher.append( "MERGE (job:Job { name : {jobName}} ) " );
-            jobCypher.append( "SET job.filename = {filename}, job.description = {description} " );
+            jobCypher.append( "MERGE (job:Job { name : $jobName} ) " );
+            jobCypher.append( "SET job.filename = $filename, job.description = $description " );
             transaction.run( jobCypher.toString(), jobPars );
 
             log.logDetailed( "Trans cypher : " + jobCypher );
@@ -142,19 +141,19 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
               entryPars.put( "drawn", copy.isDrawn() );
 
               StringBuilder entryCypher = new StringBuilder();
-              entryCypher.append( "MATCH (job:Job { name : {jobName}} ) " );
-              entryCypher.append( "MERGE (entry:JobEntry { jobName : {jobName}, name : {name}}) " );
+              entryCypher.append( "MATCH (job:Job { name : $jobName} ) " );
+              entryCypher.append( "MERGE (entry:JobEntry { jobName : $jobName, name : $name}) " );
               entryCypher.append( "SET " );
-              entryCypher.append( "   entry.description = {description} " );
-              entryCypher.append( ", entry.pluginId = {pluginId} " );
-              entryCypher.append( ", entry.evaluation = {evaluation} " );
-              entryCypher.append( ", entry.launchingParallel = {launchingParallel} " );
-              entryCypher.append( ", entry.start = {start} " );
-              entryCypher.append( ", entry.unconditional = {unconditional} " );
-              entryCypher.append( ", entry.copyNr = {copyNr} " );
-              entryCypher.append( ", entry.locationX = {locationX} " );
-              entryCypher.append( ", entry.locationY = {locationY} " );
-              entryCypher.append( ", entry.drawn = {drawn} " );
+              entryCypher.append( "   entry.description = $description " );
+              entryCypher.append( ", entry.pluginId = $pluginId " );
+              entryCypher.append( ", entry.evaluation = $evaluation " );
+              entryCypher.append( ", entry.launchingParallel = $launchingParallel " );
+              entryCypher.append( ", entry.start = $start " );
+              entryCypher.append( ", entry.unconditional = $unconditional " );
+              entryCypher.append( ", entry.copyNr = $copyNr " );
+              entryCypher.append( ", entry.locationX = $locationX " );
+              entryCypher.append( ", entry.locationY = $locationY " );
+              entryCypher.append( ", entry.drawn = $drawn " );
 
               // Also update the relationship
               //
@@ -178,15 +177,15 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
               hopPars.put( "jobName", jobMeta.getName() );
 
               StringBuilder hopCypher = new StringBuilder();
-              hopCypher.append( "MATCH (from:JobEntry { jobName : {jobName}, name : {fromEntry}}) " );
-              hopCypher.append( "MATCH (to:JobEntry { jobName : {jobName}, name : {toEntry}}) " );
+              hopCypher.append( "MATCH (from:JobEntry { jobName : $jobName, name : $fromEntry}) " );
+              hopCypher.append( "MATCH (to:JobEntry { jobName : $jobName, name : $toEntry}) " );
               hopCypher.append( "MERGE (from)-[rel:PRECEDES]->(to) " );
               transaction.run( hopCypher.toString(), hopPars );
             }
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging job metadata", e );
           }
           return null;
@@ -217,17 +216,17 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             jobPars.put( "executionStart", new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).format( startDate ) );
 
             StringBuilder jobCypher = new StringBuilder();
-            jobCypher.append( "MATCH (job:Job { name : {jobName}} ) " );
-            jobCypher.append( "MERGE (exec:Execution { name : {jobName}, type : {type}, id : {id}} ) " );
+            jobCypher.append( "MATCH (job:Job { name : $jobName} ) " );
+            jobCypher.append( "MERGE (exec:Execution { name : $jobName, type : $type, id : $id} ) " );
             jobCypher.append( "SET " );
-            jobCypher.append( " exec.executionStart = {executionStart} " );
+            jobCypher.append( " exec.executionStart = $executionStart " );
             jobCypher.append( "MERGE (exec)-[r:EXECUTION_OF_JOB]->(job) " );
 
             transaction.run( jobCypher.toString(), jobPars );
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging job start", e );
           }
 
@@ -276,25 +275,28 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
             jobPars.put( "nrResultRows", jobResult.getRows().size() );
             jobPars.put( "nrResultFiles", jobResult.getResultFilesList().size() );
 
-            StringBuilder jobCypher = new StringBuilder();
-            jobCypher.append( "MATCH (job:Job { name : {jobName}} ) " );
-            jobCypher.append( "MERGE (exec:Execution { name : {jobName}, type : {type}, id : {id}} ) " );
-            jobCypher.append( "SET " );
-            jobCypher.append( "  exec.executionEnd = {executionEnd} " );
-            jobCypher.append( ", exec.durationMs = {durationMs} " );
-            jobCypher.append( ", exec.errors = {errors} " );
-            jobCypher.append( ", exec.linesInput = {linesInput} " );
-            jobCypher.append( ", exec.linesOutput = {linesOutput} " );
-            jobCypher.append( ", exec.linesRead = {linesRead} " );
-            jobCypher.append( ", exec.linesWritten = {linesWritten} " );
-            jobCypher.append( ", exec.linesRejected = {linesRejected} " );
-            jobCypher.append( ", exec.loggingText = {loggingText} " );
-            jobCypher.append( ", exec.result = {result} " );
-            jobCypher.append( ", exec.nrResultRows = {nrResultRows} " );
-            jobCypher.append( ", exec.nrResultFiles = {nrResultFiles} " );
-            jobCypher.append( "MERGE (exec)-[r:EXECUTION_OF_JOB]->(job) " );
+            StringBuilder execCypher = new StringBuilder();
+            execCypher.append( "MERGE (exec:Execution { name : $jobName, type : $type, id : $id } ) " );
+            execCypher.append( "SET " );
+            execCypher.append( "  exec.executionEnd = $executionEnd " );
+            execCypher.append( ", exec.durationMs = $durationMs " );
+            execCypher.append( ", exec.errors = $errors " );
+            execCypher.append( ", exec.linesInput = $linesInput " );
+            execCypher.append( ", exec.linesOutput = $linesOutput " );
+            execCypher.append( ", exec.linesRead = $linesRead " );
+            execCypher.append( ", exec.linesWritten = $linesWritten " );
+            execCypher.append( ", exec.linesRejected = $linesRejected " );
+            execCypher.append( ", exec.loggingText = $loggingText " );
+            execCypher.append( ", exec.result = $result " );
+            execCypher.append( ", exec.nrResultRows = $nrResultRows " );
+            execCypher.append( ", exec.nrResultFiles = $nrResultFiles " );
+            transaction.run( execCypher.toString(), jobPars );
 
-            transaction.run( jobCypher.toString(), jobPars );
+            StringBuilder relCypher = new StringBuilder();
+            relCypher.append( "MATCH (job:Job { name : $jobName } ) " );
+            relCypher.append( "MATCH (exec:Execution { name : $jobName, type : $type, id : $id } ) " );
+            relCypher.append( "MERGE (exec)-[r:EXECUTION_OF_JOB]->(job) " );
+            transaction.run( relCypher.toString(), jobPars );
 
             // Also log every job entry execution results.
             //
@@ -320,28 +322,31 @@ public class JobLoggingExtensionPoint implements ExtensionPointInterface {
               entryPars.put( "linesOutput", result.getNrLinesOutput() );
               entryPars.put( "linesRejected", result.getNrLinesRejected() );
 
-              StringBuilder entryCypher = new StringBuilder();
-              entryCypher.append( "MATCH (entry:JobEntry { jobName : {jobName}, name : {name} } ) " );
-              entryCypher.append( "MERGE (exec:Execution { name : {name}, type : {type}, id : {id}} ) " );
-              entryCypher.append( "SET " );
-              entryCypher.append( "  exec.jobId = {jobId} " );
-              entryCypher.append( ", exec.loggingText = {loggingText} " );
-              entryCypher.append( ", exec.nr = {nr} " );
-              entryCypher.append( ", exec.comment = {comment} " );
-              entryCypher.append( ", exec.reason = {reason} " );
-              entryCypher.append( ", exec.linesRead = {linesRead} " );
-              entryCypher.append( ", exec.linesWritten = {linesWritten} " );
-              entryCypher.append( ", exec.linesInput = {linesInput} " );
-              entryCypher.append( ", exec.linesOutput = {linesOutput} " );
-              entryCypher.append( ", exec.linesRejected = {linesRejected} " );
-              entryCypher.append( "MERGE (exec)-[r:EXECUTION_OF_JOBENTRY]->(entry) " );
+              StringBuilder entryExecCypher = new StringBuilder();
+              entryExecCypher.append( "MERGE (exec:Execution { name : $name, type : $type, id : $id } ) " );
+              entryExecCypher.append( "SET " );
+              entryExecCypher.append( "  exec.jobId = $jobId " );
+              entryExecCypher.append( ", exec.loggingText = $loggingText " );
+              entryExecCypher.append( ", exec.nr = $nr " );
+              entryExecCypher.append( ", exec.comment = $comment " );
+              entryExecCypher.append( ", exec.reason = $reason " );
+              entryExecCypher.append( ", exec.linesRead = $linesRead " );
+              entryExecCypher.append( ", exec.linesWritten = $linesWritten " );
+              entryExecCypher.append( ", exec.linesInput = $linesInput " );
+              entryExecCypher.append( ", exec.linesOutput = $linesOutput " );
+              entryExecCypher.append( ", exec.linesRejected = $linesRejected " );
+              transaction.run( entryExecCypher.toString(), entryPars );
 
-              transaction.run( entryCypher.toString(), entryPars );
+              StringBuilder entryRelCypher = new StringBuilder();
+              entryRelCypher.append( "MATCH (entry:JobEntry { jobName : $jobName, name : $name } ) " );
+              entryRelCypher.append( "MATCH (exec:Execution { name : $name, type : $type, id : $id } ) " );
+              entryRelCypher.append( "MERGE (exec)-[r:EXECUTION_OF_JOBENTRY]->(entry) " );
+              transaction.run( entryRelCypher.toString(), entryPars );
             }
 
-            transaction.success();
+            transaction.commit();
           } catch ( Exception e ) {
-            transaction.failure();
+            transaction.rollback();
             log.logError( "Error logging job end", e );
           }
           return null;

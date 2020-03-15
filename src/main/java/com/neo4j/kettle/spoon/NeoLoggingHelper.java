@@ -24,18 +24,21 @@ package com.neo4j.kettle.spoon;
 
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.shared.NeoConnection;
 import com.neo4j.kettle.spoon.history.HistoryResult;
 import com.neo4j.kettle.spoon.history.HistoryResults;
 import com.neo4j.kettle.spoon.history.HistoryResultsDialog;
 import org.apache.commons.lang.StringUtils;
-import org.neo4j.driver.v1.Driver;
-import org.neo4j.driver.v1.Record;
-import org.neo4j.driver.v1.Session;
-import org.neo4j.driver.v1.StatementResult;
-import org.neo4j.driver.v1.Value;
-import org.neo4j.driver.v1.types.Node;
-import org.neo4j.driver.v1.types.Path;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Transaction;
+import org.neo4j.driver.TransactionConfig;
+import org.neo4j.driver.TransactionWork;
+import org.neo4j.driver.Value;
+import org.neo4j.driver.types.Node;
+import org.neo4j.driver.types.Path;
+import org.neo4j.kettle.shared.NeoConnection;
 import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
@@ -65,7 +68,6 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
   private Spoon spoon;
 
   private NeoConnection connection;
-  private Driver driver;
 
   private NeoLoggingHelper() {
     spoon = Spoon.getInstance();
@@ -81,16 +83,12 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
   }
 
   private static void loadConnectionDriver() {
-    if ( instance.connection == null || instance.driver == null ) {
+    if ( instance.connection == null ) {
       try {
         instance.connection = loadConnection();
-        if ( instance.connection != null ) {
-          instance.driver = instance.connection.getDriver( instance.spoon.getLog() );
-        }
       } catch ( Exception e ) {
         instance.spoon.getLog().logError( "No usable Neo4j logging connection configured in variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION, e );
         instance.connection = null;
-        instance.driver = null;
       }
     }
   }
@@ -126,7 +124,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       TransGraph transGraph = spoon.getActiveTransGraph();
       TransMeta transMeta = spoon.getActiveTransformation();
       StepMeta stepMeta = transGraph.getCurrentStep();
-      if ( driver == null || connection == null || transGraph == null || transMeta == null || stepMeta == null ) {
+      if ( connection == null || transGraph == null || transMeta == null || stepMeta == null ) {
         return;
       }
 
@@ -141,7 +139,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
       Session session = null;
       try {
-        session = driver.session();
+        session = connection.getSession( spoon.getLog() );
         lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly, false );
 
         HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
@@ -159,7 +157,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
   public void showLogging() {
     loadConnectionDriver();
-    if ( driver == null || connection == null ) {
+    if ( connection == null ) {
       return;
     }
 
@@ -169,7 +167,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       if ( historyResults != null ) {
         Session session = null;
         try {
-          session = driver.session();
+          session = connection.getSession(spoon.getLog());
           lookupExecutionHistory( historyResults, spoon.getLog(), session, false, false );
 
           HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
@@ -232,7 +230,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
       JobGraph jobGraph = spoon.getActiveJobGraph();
       JobMeta jobMeta = spoon.getActiveJob();
       JobEntryCopy jobEntry = jobGraph.getJobEntry();
-      if ( driver == null || connection == null || jobGraph == null || jobMeta == null || jobEntry == null ) {
+      if ( connection == null || jobGraph == null || jobMeta == null || jobEntry == null ) {
         return;
       }
 
@@ -247,7 +245,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
       Session session = null;
       try {
-        session = driver.session();
+        session = connection.getSession(spoon.getLog());
         lookupExecutionHistory( historyResults, spoon.getLog(), session, errorsOnly, false );
 
         HistoryResultsDialog historyResultsDialog = new HistoryResultsDialog( spoon.getShell(), historyResults );
@@ -276,18 +274,18 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     params.put( "parentType", historyResults.getParentType() );
 
     StringBuilder cypher = new StringBuilder();
-    cypher.append( "MATCH(se:Execution { name : {subjectName}, type : {subjectType}}) " );
+    cypher.append( "MATCH (se:Execution { name : $subjectName, type : $subjectType } ) " );
     if ( hasParent ) {
-      cypher.append( "MATCH(te:Execution { name : {parentName}, type : {parentType}}) " );
-      cypher.append( "MATCH(te)-[r:EXECUTES]->(se) " );
+      cypher.append( "MATCH (te:Execution { name : $parentName, type : $parentType }) " );
+      cypher.append( "MATCH (te)-[r:EXECUTES]->(se) " );
     }
     cypher.append( "WHERE se.registrationDate IS NOT NULL " );
     if ( hasParent ) {
-      cypher.append( "  AND te.registrationDate IS NOT NULL " );
+      cypher.append( "AND   te.registrationDate IS NOT NULL " );
     }
 
     if ( errorsOnly ) {
-      cypher.append( "  AND se.errors>0 " );
+      cypher.append( "AND   se.errors>0 " );
     }
 
     cypher.append( "RETURN se.id, se.name, se.type, se.copy, se.registrationDate, " );
@@ -295,108 +293,110 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
     cypher.append( "        se.linesOutput, se.linesRejected, se.errors, se.durationMs," );
     cypher.append( "        se.loggingText, se.root " );
     cypher.append( " ORDER BY se.registrationDate DESC " );
-    cypher.append( "LIMIT 10 " );
+    cypher.append( "LIMIT 20 " );
 
-    // Get the last 10 execution IDs
+    // Get the last 20 executions
     //
-    StatementResult statementResult = session.run( cypher.toString(), params );
-    while ( statementResult.hasNext() ) {
-      Record record = statementResult.next();
+    session.readTransaction( new TransactionWork<Integer>() {
+      @Override public Integer execute( Transaction tx ) {
+        Result result = tx.run( cypher.toString(), params );
 
-      HistoryResult execution = new HistoryResult();
+        while ( result.hasNext() ) {
+          Record record = result.next();
 
-      int index = 0;
-      String subjectLogChannelId = LoggingCore.getStringValue( record, index++ );
-      execution.setId( subjectLogChannelId );
-      execution.setName( LoggingCore.getStringValue( record, index++ ) );
-      execution.setType( LoggingCore.getStringValue( record, index++ ) );
-      execution.setCopy( LoggingCore.getStringValue( record, index++ ) );
-      execution.setRegistrationDate( LoggingCore.getStringValue( record, index++ ) );
-      execution.setWritten( LoggingCore.getLongValue( record, index++ ) );
-      execution.setRead( LoggingCore.getLongValue( record, index++ ) );
-      execution.setInput( LoggingCore.getLongValue( record, index++ ) );
-      execution.setOutput( LoggingCore.getLongValue( record, index++ ) );
-      execution.setRejected( LoggingCore.getLongValue( record, index++ ) );
-      execution.setErrors( LoggingCore.getLongValue( record, index++ ) );
-      execution.setDurationMs( LoggingCore.getLongValue( record, index++ ) );
-      execution.setLoggingText( LoggingCore.getStringValue( record, index++ ) );
-      execution.setRoot( LoggingCore.getBooleanValue( record, index++ ) );
-      historyResults.getLastExecutions().add( execution );
+          HistoryResult execution = new HistoryResult();
 
-      if ( execution.isRoot() == null || !execution.isRoot() || errorPath ) {
-        // OK, we're still here.
-        // We now know the unique key for the selected step's last execution in the given transformation
-        //
-        // Now get the path to the root job or transformation
-        //
-        Map<String, Object> pathParams = new HashMap<>();
-        pathParams.put( "subjectName", historyResults.getSubjectName() );
-        pathParams.put( "subjectType", historyResults.getSubjectType() );
-        pathParams.put( "subjectId", subjectLogChannelId );
+          int index = 0;
+          String subjectLogChannelId = LoggingCore.getStringValue( record, index++ );
+          execution.setId( subjectLogChannelId );
+          execution.setName( LoggingCore.getStringValue( record, index++ ) );
+          execution.setType( LoggingCore.getStringValue( record, index++ ) );
+          execution.setCopy( LoggingCore.getStringValue( record, index++ ) );
+          execution.setRegistrationDate( LoggingCore.getStringValue( record, index++ ) );
+          execution.setWritten( LoggingCore.getLongValue( record, index++ ) );
+          execution.setRead( LoggingCore.getLongValue( record, index++ ) );
+          execution.setInput( LoggingCore.getLongValue( record, index++ ) );
+          execution.setOutput( LoggingCore.getLongValue( record, index++ ) );
+          execution.setRejected( LoggingCore.getLongValue( record, index++ ) );
+          execution.setErrors( LoggingCore.getLongValue( record, index++ ) );
+          execution.setDurationMs( LoggingCore.getLongValue( record, index++ ) );
+          execution.setLoggingText( LoggingCore.getStringValue( record, index++ ) );
+          execution.setRoot( LoggingCore.getBooleanValue( record, index++ ) );
+          historyResults.getLastExecutions().add( execution );
 
-        StringBuilder pathCypher = new StringBuilder();
-        if ( errorPath ) {
+          if ( execution.isRoot() == null || !execution.isRoot() || errorPath ) {
+            // OK, we're still here.
+            // We now know the unique key for the selected step's last execution in the given transformation
+            //
+            // Now get the path to the root job or transformation
+            //
+            Map<String, Object> pathParams = new HashMap<>();
+            pathParams.put( "subjectName", historyResults.getSubjectName() );
+            pathParams.put( "subjectType", historyResults.getSubjectType() );
+            pathParams.put( "subjectId", subjectLogChannelId );
 
-          // System.out.println( "Error path top ID : "+subjectLogChannelId );
-
-          pathCypher.append( "MATCH(top:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}})-[rel:EXECUTES*]-(err:Execution) " );
-          pathCypher.append( "   , p=shortestpath((top)-[:EXECUTES*]-(err)) " );
-          pathCypher.append( "WHERE top.registrationDate IS NOT NULL " );
-          pathCypher.append( "  AND err.errors > 0 " );
-          pathCypher.append( "  AND size((err)-[:EXECUTES]->())=0 " );
-          pathCypher.append( "RETURN p " );
-          pathCypher.append( "ORDER BY size(RELATIONSHIPS(p)) DESC " );
-          pathCypher.append( "LIMIT 5" );
-        } else {
-          pathCypher.append( "MATCH(se:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}}) " );
-          pathCypher.append( "   , (je:Execution { root : true }) " );
-          pathCypher.append( "   , p=shortestpath((se)-[:EXECUTES*]-(je)) " );
-          pathCypher.append( "WHERE se.registrationDate IS NOT NULL " );
-          pathCypher.append( "RETURN p " );
-          pathCypher.append( "LIMIT 5 " );
-        }
-
-        StatementResult pathResult = session.run( pathCypher.toString(), pathParams );
-
-        List<List<HistoryResult>> shortestPaths = execution.getShortestPaths();
-
-        while ( pathResult.hasNext() ) {
-          // System.out.println("Path found!");
-          Record pathRecord = pathResult.next();
-          Value pathValue = pathRecord.get( 0 );
-          Path path = pathValue.asPath();
-          List<HistoryResult> shortestPath = new ArrayList<>();
-          for ( Node node : path.nodes() ) {
-            HistoryResult pathExecution = new HistoryResult();
-            pathExecution.setId( LoggingCore.getStringValue( node, "id" ) );
-            pathExecution.setName( LoggingCore.getStringValue( node, "name" ) );
-            // System.out.println(" - Node name : "+pathExecution.getName());
-            pathExecution.setType( LoggingCore.getStringValue( node, "type" ) );
-            pathExecution.setCopy( LoggingCore.getStringValue( node, "copy" ) );
-            pathExecution.setRegistrationDate( LoggingCore.getStringValue( node, "registrationDate" ) );
-            pathExecution.setWritten( LoggingCore.getLongValue( node, "linesWritten" ) );
-            pathExecution.setRead( LoggingCore.getLongValue( node, "linesRead" ) );
-            pathExecution.setInput( LoggingCore.getLongValue( node, "linesInput" ) );
-            pathExecution.setOutput( LoggingCore.getLongValue( node, "linesOutput" ) );
-            pathExecution.setRejected( LoggingCore.getLongValue( node, "linesRejected" ) );
-            pathExecution.setErrors( LoggingCore.getLongValue( node, "errors" ) );
-            pathExecution.setLoggingText( LoggingCore.getStringValue( node, "loggingText" ) );
-            pathExecution.setDurationMs( LoggingCore.getLongValue( node, "durationMs" ) );
-
+            StringBuilder pathCypher = new StringBuilder();
             if ( errorPath ) {
-              shortestPath.add( 0, pathExecution );
+
+              // System.out.println( "Error path top ID : "+subjectLogChannelId );
+
+              pathCypher.append( "MATCH(top:Execution { name : $subjectName, type : $subjectType, id : $subjectId })-[rel:EXECUTES*]-(err:Execution) " );
+              pathCypher.append( "   , p=shortestpath((top)-[:EXECUTES*]-(err)) " );
+              pathCypher.append( "WHERE top.registrationDate IS NOT NULL " );
+              pathCypher.append( "  AND err.errors > 0 " );
+              pathCypher.append( "  AND size((err)-[:EXECUTES]->())=0 " );
+              pathCypher.append( "RETURN p " );
+              pathCypher.append( "ORDER BY size(RELATIONSHIPS(p)) DESC " );
+              pathCypher.append( "LIMIT 5" );
             } else {
-              shortestPath.add( pathExecution );
+              pathCypher.append( "MATCH(se:Execution { name : $subjectName, type : $subjectType, id : $subjectId }) " );
+              pathCypher.append( "   , (je:Execution { root : true }) " );
+              pathCypher.append( "   , p=shortestpath((se)-[:EXECUTES*]-(je)) " );
+              pathCypher.append( "WHERE se.registrationDate IS NOT NULL " );
+              pathCypher.append( "RETURN p " );
+              pathCypher.append( "LIMIT 5 " );
+            }
+
+            Result pathResult = tx.run( pathCypher.toString(), pathParams );
+
+            List<List<HistoryResult>> shortestPaths = execution.getShortestPaths();
+
+            while ( pathResult.hasNext() ) {
+              // System.out.println("Path found!");
+              Record pathRecord = pathResult.next();
+              Value pathValue = pathRecord.get( 0 );
+              Path path = pathValue.asPath();
+              List<HistoryResult> shortestPath = new ArrayList<>();
+              for ( Node node : path.nodes() ) {
+                HistoryResult pathExecution = new HistoryResult();
+                pathExecution.setId( LoggingCore.getStringValue( node, "id" ) );
+                pathExecution.setName( LoggingCore.getStringValue( node, "name" ) );
+                // System.out.println(" - Node name : "+pathExecution.getName());
+                pathExecution.setType( LoggingCore.getStringValue( node, "type" ) );
+                pathExecution.setCopy( LoggingCore.getStringValue( node, "copy" ) );
+                pathExecution.setRegistrationDate( LoggingCore.getStringValue( node, "registrationDate" ) );
+                pathExecution.setWritten( LoggingCore.getLongValue( node, "linesWritten" ) );
+                pathExecution.setRead( LoggingCore.getLongValue( node, "linesRead" ) );
+                pathExecution.setInput( LoggingCore.getLongValue( node, "linesInput" ) );
+                pathExecution.setOutput( LoggingCore.getLongValue( node, "linesOutput" ) );
+                pathExecution.setRejected( LoggingCore.getLongValue( node, "linesRejected" ) );
+                pathExecution.setErrors( LoggingCore.getLongValue( node, "errors" ) );
+                pathExecution.setLoggingText( LoggingCore.getStringValue( node, "loggingText" ) );
+                pathExecution.setDurationMs( LoggingCore.getLongValue( node, "durationMs" ) );
+
+                if ( errorPath ) {
+                  shortestPath.add( 0, pathExecution );
+                } else {
+                  shortestPath.add( pathExecution );
+                }
+              }
+              shortestPaths.add( shortestPath );
             }
           }
-          shortestPaths.add( shortestPath );
         }
+        return null;
       }
-    }
-  }
-
-  public Driver getDriver() {
-    return driver;
+    });
   }
 
   /**
@@ -405,7 +405,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
    */
   public void findError() {
     loadConnectionDriver();
-    if ( driver == null || connection == null ) {
+    if ( connection == null ) {
       return;
     }
 
@@ -413,7 +413,7 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
 
     Spoon spoon = Spoon.getInstance();
     try {
-      session = driver.session();
+      session = connection.getSession(spoon.getLog());
 
       // First, find the last execution of the current transformation or job.
       //
@@ -437,10 +437,6 @@ public class NeoLoggingHelper extends AbstractXulEventHandler implements ISpoonM
    * Used when switching environments in Spoon
    */
   public void resetConnectionDriver() {
-    if (driver!=null) {
-      driver.close();
-      driver = null;
-    }
     connection = null;
   }
 }

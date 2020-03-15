@@ -1,7 +1,6 @@
 package com.neo4j.kettle.spoon.history;
 
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.logging.util.LoggingSession;
 import com.neo4j.kettle.model.AreaOwner;
 import com.neo4j.kettle.model.AreaType;
 import com.neo4j.kettle.model.DataModel;
@@ -10,7 +9,6 @@ import com.neo4j.kettle.model.DataPresentation;
 import com.neo4j.kettle.model.DataProperty;
 import com.neo4j.kettle.model.DataRelationship;
 import com.neo4j.kettle.model.Scoring;
-import com.neo4j.kettle.shared.NeoConnection;
 import org.apache.commons.lang.StringUtils;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.SashForm;
@@ -35,10 +33,14 @@ import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.Tree;
 import org.eclipse.swt.widgets.TreeColumn;
 import org.eclipse.swt.widgets.TreeItem;
-import org.neo4j.driver.v1.Record;
-import org.neo4j.driver.v1.Session;
-import org.neo4j.driver.v1.StatementResult;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.driver.Session;
+import org.neo4j.driver.Transaction;
+import org.neo4j.driver.TransactionWork;
+import org.neo4j.kettle.shared.NeoConnection;
 import org.pentaho.di.core.Const;
+import org.pentaho.di.core.logging.LogChannel;
 import org.pentaho.di.core.logging.LoggingObjectType;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
@@ -105,7 +107,7 @@ public class HistoryResultsDialog {
     space.initializeVariablesFrom( null );
     try {
       connection = LoggingCore.getConnection( Spoon.getInstance().getMetaStore(), space );
-      session = LoggingSession.getInstance().getSession( connection );
+      session = connection.getSession( LogChannel.UI );
     } catch(Exception e) {
       Spoon.getInstance().getLog().logError("Error getting session: ", e);
       connection = null;
@@ -583,26 +585,36 @@ public class HistoryResultsDialog {
     params.put( "subjectId",   linkedExecution.getId() );
 
     StringBuilder cypher = new StringBuilder();
-    cypher.append( "MATCH(step:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}} )" ); // STEP
-    cypher.append( "-[:EXECUTION_OF_STEP]->(stepMeta:Step { name : {subjectName}} )" ); // Step
+    cypher.append( "MATCH(step:Execution { name : $subjectName, type : $subjectType, id : $subjectId } )" ); // STEP
+    cypher.append( "-[:EXECUTION_OF_STEP]->(stepMeta:Step { name : $subjectName } )" ); // Step
     cypher.append( "-[:STEP_OF_TRANSFORMATION]->(transMeta:Transformation) " );
     cypher.append( "RETURN transMeta.filename, stepMeta.name " );
 
-    // System.out.println("Open step cypher : "+cypher.toString());
+    String[] names = session.readTransaction( new TransactionWork<String[]>() {
+      @Override public String[] execute( Transaction tx ) {
+        Result statementResult = tx.run( cypher.toString(), params );
+        if (!statementResult.hasNext()) {
+          statementResult.consume();
+          return null; // No file found
+        }
+        Record record = statementResult.next();
+        statementResult.consume();
 
-    StatementResult statementResult = session.run( cypher.toString(), params );
-    if (!statementResult.hasNext()) {
-      statementResult.consume();
-      return; // No file found
+        String filename = LoggingCore.getStringValue( record, 0 );
+        String stepname = LoggingCore.getStringValue( record, 1 );
+
+        return new String[] {
+          filename, stepname
+        };
+      }
+    } );
+
+    if (names==null) {
+      return;
     }
-    Record record = statementResult.next();
-    statementResult.consume();
 
-    String filename = LoggingCore.getStringValue( record, 0 );
-    String stepname = LoggingCore.getStringValue( record, 1 );
-
-    // System.out.println("Open filename : "+filename);
-    // System.out.println("Open stepname : "+stepname);
+    String filename = names[0];
+    String stepname = names[1];
 
     Spoon spoon = Spoon.getInstance();
     if ( StringUtils.isNotEmpty(filename)) {
@@ -636,23 +648,34 @@ public class HistoryResultsDialog {
     params.put( "subjectId",   linkedExecution.getId() );
 
     StringBuilder cypher = new StringBuilder();
-    cypher.append( "MATCH(jobEntry:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}} )" ); // JOBENTRY
-    cypher.append( "-[:EXECUTION_OF_JOBENTRY]->(jobEntryMeta:JobEntry { name : {subjectName}} )" ); // JobEntry
+    cypher.append( "MATCH(jobEntry:Execution { name : $subjectName, type : $subjectType, id : $subjectId } )" ); // JOBENTRY
+    cypher.append( "-[:EXECUTION_OF_JOBENTRY]->(jobEntryMeta:JobEntry { name : $subjectName } )" ); // JobEntry
     cypher.append( "-[:JOBENTRY_OF_JOB]->(jobMeta:Job) " ); // JobMeta
     cypher.append( "RETURN jobMeta.filename, jobEntryMeta.name " );
 
-    // System.out.println("Open job entry cypher : "+cypher.toString());
+    String[] names = session.readTransaction( new TransactionWork<String[]>() {
+      @Override public String[] execute( Transaction tx ) {
 
-    StatementResult statementResult = session.run( cypher.toString(), params );
-    if (!statementResult.hasNext()) {
-      statementResult.consume();
-      return; // No file found
+        Result statementResult = tx.run( cypher.toString(), params );
+        if (!statementResult.hasNext()) {
+          statementResult.consume();
+          return null; // No file found
+        }
+        Record record = statementResult.next();
+        statementResult.consume();
+
+        return new String[] {
+          LoggingCore.getStringValue( record, 0 ), // filename
+          LoggingCore.getStringValue( record, 1 )  // entryname
+        };
+      }
+    } );
+    if (names==null) {
+      return;
     }
-    Record record = statementResult.next();
-    statementResult.consume();
 
-    String filename = LoggingCore.getStringValue( record, 0 );
-    String entryname = LoggingCore.getStringValue( record, 1 );
+    String filename = names[0];
+    String entryname = names[1];
 
     // System.out.println("Open filename : "+filename);
     // System.out.println("Open stepname : "+entryname);
@@ -686,19 +709,26 @@ public class HistoryResultsDialog {
     params.put( "subjectId",   linkedExecution.getId() );
 
     StringBuilder cypher = new StringBuilder();
-    cypher.append( "MATCH(ex:Execution { name : {subjectName}, type : {subjectType}, id : {subjectId}}) " );
-    cypher.append( "MATCH(tr:"+nodeLabel+" { name : {subjectName}}) " );
+    cypher.append( "MATCH(ex:Execution { name : $subjectName, type : $subjectType, id : $subjectId }) " );
+    cypher.append( "MATCH(tr:"+nodeLabel+" { name : $subjectName }) " );
     cypher.append( "MATCH(ex)-[:"+relationship+"]->(tr) " );
     cypher.append( "RETURN tr.filename " );
 
-    StatementResult statementResult = session.run( cypher.toString(), params );
-    if (!statementResult.hasNext()) {
-      statementResult.consume();
-      return; // No file found
-    }
-    Record record = statementResult.next();
-    String filename = LoggingCore.getStringValue( record, 0 );
-    statementResult.consume();
+    String filename = session.readTransaction( new TransactionWork<String>() {
+      @Override public String execute( Transaction tx ) {
+        Result statementResult = tx.run( cypher.toString(), params );
+        if (!statementResult.hasNext()) {
+          statementResult.consume();
+          return null; // No file found
+        }
+        Record record = statementResult.next();
+        statementResult.consume();
+
+        String filename = LoggingCore.getStringValue( record, 0 );
+
+        return filename;
+      }
+    } );
 
     if ( StringUtils.isNotEmpty(filename)) {
       Spoon.getInstance().openFile( filename, false );
@@ -782,20 +812,14 @@ public class HistoryResultsDialog {
     if (session!=null && cypher!=null) {
       // Execute cypher and get DataModel
       //
-      StatementResult result = session.run( cypher );
-      currentDataModel = new DataModel( "Logging analyses", result );
+      final String cypherString = cypher;
+      currentDataModel = session.readTransaction( tx -> {
+        Result result = tx.run( cypherString );
 
-      /*
-      long cutOffTimeMs = 1000;
-
-      // currentDataModel.getBestScoreListeners().add( this::updateDataModel );
-      Scoring bestScore = currentDataModel.autoLayout( parent.getDisplay(), wCanvas.getBounds(), cutOffTimeMs );
-      if (bestScore==null) {
-        return;
-      }
-
-      Spoon.getInstance().getLog().logBasic("END LAYOUT TIME PER ITERATION (ns): "+(long)((double)(cutOffTimeMs*1000000/bestScore.iterations)) );
-      */
+        // Load data model from results...
+        //
+        return new DataModel( "Logging analyses", result );
+      } );
 
       DataNode startNode = currentDataModel.findNodeWithProperty( "root", true);
       if (startNode==null) {
@@ -940,16 +964,19 @@ public class HistoryResultsDialog {
       log.append( cypher );
       log.append( Const.CR );
     }
-    // Let's calculate also the links to all the shortest metadata nodes
-    //
-    if (hr.getShortestPaths().size()>pathIndex) {
-      log.append( "Shortest path including metadata: " ).append( Const.CR );
-      log.append("--------------------------------------------").append(Const.CR);
-      metaCypher = hr.getShortestPathWithMetadataCommand( pathIndex);
-      cypher = metaCypher;
-      log.append( cypher );
-      // System.out.println(">>>>> GOT SHORTEST PATH WITH METADATA!");
-      log.append( Const.CR );
+
+    if (!errorPath) {
+      // Let's calculate also the links to all the shortest metadata nodes
+      //
+      if ( hr.getShortestPaths().size() > pathIndex ) {
+        log.append( "Shortest path including metadata: " ).append( Const.CR );
+        log.append( "--------------------------------------------" ).append( Const.CR );
+        metaCypher = hr.getShortestPathWithMetadataCommand( pathIndex );
+        cypher = metaCypher;
+        log.append( cypher );
+        // System.out.println(">>>>> GOT SHORTEST PATH WITH METADATA!");
+        log.append( Const.CR );
+      }
     }
 
     log.append( "Execution Log: " ).append( Const.CR );

@@ -22,28 +22,18 @@
 
 package com.neo4j.kettle.logging.step;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import com.neo4j.kettle.logging.Defaults;
 import com.neo4j.kettle.logging.util.LoggingCore;
-import com.neo4j.kettle.shared.NeoConnection;
+import com.neo4j.kettle.logging.util.WorkLambda;
 import org.apache.commons.lang.StringUtils;
-import org.neo4j.driver.v1.Record;
-import org.neo4j.driver.v1.StatementResult;
-import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
+import org.neo4j.kettle.shared.NeoConnection;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleException;
+import org.pentaho.di.core.logging.LogChannelInterface;
 import org.pentaho.di.core.row.RowMeta;
 import org.pentaho.di.core.row.RowMetaInterface;
-import org.pentaho.di.job.Job;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.BaseStep;
@@ -51,7 +41,14 @@ import org.pentaho.di.trans.step.StepDataInterface;
 import org.pentaho.di.trans.step.StepInterface;
 import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.trans.step.StepMetaInterface;
-import org.pentaho.di.www.jaxrs.TransformationStatus;
+
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Get information from the System or the supervising transformation.
@@ -69,57 +66,57 @@ public class GetLoggingInfo extends BaseStep implements StepInterface {
   }
 
   private Object[] getLoggingInfo( RowMetaInterface inputRowMeta, Object[] inputRowData ) throws Exception {
-    Object[] row = new Object[data.outputRowMeta.size()];
+    Object[] row = new Object[ data.outputRowMeta.size() ];
     for ( int i = 0; i < inputRowMeta.size(); i++ ) {
-      row[i] = inputRowData[i]; // no data is changed, clone is not needed here.
+      row[ i ] = inputRowData[ i ]; // no data is changed, clone is not needed here.
     }
     for ( int i = 0, index = inputRowMeta.size(); i < meta.getFieldName().length; i++, index++ ) {
       Calendar cal;
 
       int argnr = 0;
 
-      String argument = meta.getFieldArgument()[i];
-      if ( StringUtils.isEmpty(argument)) {
+      String argument = meta.getFieldArgument()[ i ];
+      if ( StringUtils.isEmpty( argument ) ) {
         argument = getTrans().getTransMeta().getName();
       } else {
-        argument = environmentSubstitute(argument);
+        argument = environmentSubstitute( argument );
       }
 
-      switch ( meta.getFieldType()[i] ) {
+      switch ( meta.getFieldType()[ i ] ) {
         case TYPE_SYSTEM_INFO_TRANS_DATE_FROM: {
-            Date previousSuccess = getPreviousTransSuccess( argument );
-            if ( previousSuccess == null ) {
-              previousSuccess = Const.MIN_DATE;
-            }
-            row[ index ] = previousSuccess;
+          Date previousSuccess = getPreviousTransSuccess( argument );
+          if ( previousSuccess == null ) {
+            previousSuccess = Const.MIN_DATE;
           }
-          break;
+          row[ index ] = previousSuccess;
+        }
+        break;
         case TYPE_SYSTEM_INFO_TRANS_DATE_TO:
-          row[index] = getTrans().getCurrentDate();
+          row[ index ] = getTrans().getCurrentDate();
           break;
         case TYPE_SYSTEM_INFO_JOB_DATE_FROM: {
-            Date previousSuccess = getPreviousJobSuccess( argument );
-            if ( previousSuccess == null ) {
-              previousSuccess = Const.MIN_DATE;
-            }
-            row[ index ] = previousSuccess;
+          Date previousSuccess = getPreviousJobSuccess( argument );
+          if ( previousSuccess == null ) {
+            previousSuccess = Const.MIN_DATE;
           }
-          break;
+          row[ index ] = previousSuccess;
+        }
+        break;
         case TYPE_SYSTEM_INFO_JOB_DATE_TO:
-          row[index] = getTrans().getCurrentDate();
+          row[ index ] = getTrans().getCurrentDate();
           break;
 
         case TYPE_SYSTEM_INFO_TRANS_PREVIOUS_EXECUTION_DATE:
-          row[index] = getPreviousTransExecution( argument );
+          row[ index ] = getPreviousTransExecution( argument );
           break;
         case TYPE_SYSTEM_INFO_TRANS_PREVIOUS_SUCCESS_DATE:
-          row[index] = getPreviousTransSuccess( argument );
+          row[ index ] = getPreviousTransSuccess( argument );
           break;
         case TYPE_SYSTEM_INFO_JOB_PREVIOUS_EXECUTION_DATE:
-          row[index] = getPreviousJobExecution( argument );
+          row[ index ] = getPreviousJobExecution( argument );
           break;
         case TYPE_SYSTEM_INFO_JOB_PREVIOUS_SUCCESS_DATE:
-          row[index] = getPreviousJobSuccess( argument );
+          row[ index ] = getPreviousJobSuccess( argument );
           break;
 
         default:
@@ -164,7 +161,7 @@ public class GetLoggingInfo extends BaseStep implements StepInterface {
 
     try {
       row = getLoggingInfo( imeta, row );
-    } catch(Exception e) {
+    } catch ( Exception e ) {
       throw new KettleException( "Error getting Neo4j logging information", e );
     }
 
@@ -203,103 +200,109 @@ public class GetLoggingInfo extends BaseStep implements StepInterface {
     super.dispose( smi, sdi );
   }
 
-  private Date getPreviousTransExecution(String transformationName) throws Exception {
+  private Date getPreviousTransExecution( String transformationName ) throws Exception {
 
     final NeoConnection connection = LoggingCore.getConnection( getTrans().getMetaStore(), getTrans() );
-    if (connection==null) {
-      throw new KettleException("Unable to find logging Neo4j connection (variable "+Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION+")");
+    if ( connection == null ) {
+      throw new KettleException( "Unable to find logging Neo4j connection (variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION + ")" );
     }
 
-    Map<String, Object> parameters = new HashMap<>(  );
+    Map<String, Object> parameters = new HashMap<>();
     parameters.put( "type", "TRANS" );
     parameters.put( "trans", transformationName );
     parameters.put( "status", Trans.STRING_FINISHED );
 
-    String cypher = "MATCH(e:Execution { type: {type}, name : {trans}}) "
-      + "WHERE e.status = {status} "
+    String cypher = "MATCH(e:Execution { type: $type, name : $trans }) "
+      + "WHERE e.status = $status "
       + "RETURN e.name AS Name, e.executionStart AS startDate, e.errors AS errors, e.id AS id "
       + "ORDER BY startDate DESC "
       + "LIMIT 1 ";
 
-    StatementResult result = LoggingCore.executeCypher( log, connection, cypher, parameters );
-    return getResultDate(result, "startDate");
+    return getResultStartDate(log, connection, cypher, parameters);
   }
 
-  private Date getPreviousTransSuccess(String transformationName) throws Exception {
+  private Date getPreviousTransSuccess( String transformationName ) throws Exception {
 
     final NeoConnection connection = LoggingCore.getConnection( getTrans().getMetaStore(), getTrans() );
-    if (connection==null) {
-      throw new KettleException("Unable to find logging Neo4j connection (variable "+Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION+")");
+    if ( connection == null ) {
+      throw new KettleException( "Unable to find logging Neo4j connection (variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION + ")" );
     }
 
-    Map<String, Object> parameters = new HashMap<>(  );
+    Map<String, Object> parameters = new HashMap<>();
     parameters.put( "type", "TRANS" );
     parameters.put( "trans", transformationName );
     parameters.put( "status", Trans.STRING_FINISHED );
 
-    String cypher = "MATCH(e:Execution { type: {type}, name : {trans}}) "
+    String cypher = "MATCH(e:Execution { type: $type, name : $trans }) "
       + "WHERE e.errors = 0 "
-      + "  AND e.status = {status} "
+      + "  AND e.status = $status "
       + "RETURN e.name AS Name, e.executionStart AS startDate, e.errors AS errors, e.id AS id "
       + "ORDER BY startDate DESC "
       + "LIMIT 1 ";
 
-    StatementResult result = LoggingCore.executeCypher( log, connection, cypher, parameters );
-    return getResultDate(result, "startDate");
+    return getResultStartDate(log, connection, cypher, parameters);
   }
 
-  private Date getPreviousJobExecution(String jobName) throws Exception {
+  private Date getPreviousJobExecution( String jobName ) throws Exception {
 
     final NeoConnection connection = LoggingCore.getConnection( getTrans().getMetaStore(), getTrans() );
-    if (connection==null) {
-      throw new KettleException("Unable to find logging Neo4j connection (variable "+Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION+")");
+    if ( connection == null ) {
+      throw new KettleException( "Unable to find logging Neo4j connection (variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION + ")" );
     }
 
-    Map<String, Object> parameters = new HashMap<>(  );
+    Map<String, Object> parameters = new HashMap<>();
     parameters.put( "type", "JOB" );
     parameters.put( "job", jobName );
     parameters.put( "status", Trans.STRING_FINISHED );
 
-    String cypher = "MATCH(e:Execution { type: {type}, name : {job}}) "
-      + "WHERE e.status = {status} "
+    String cypher = "MATCH(e:Execution { type: $type, name : $job }) "
+      + "WHERE e.status = $status "
       + "RETURN e.name AS Name, e.executionStart AS startDate, e.errors AS errors, e.id AS id "
       + "ORDER BY startDate DESC "
       + "LIMIT 1 ";
 
-    StatementResult result = LoggingCore.executeCypher( log, connection, cypher, parameters );
-    return getResultDate(result, "startDate");
+    return getResultStartDate(log, connection, cypher, parameters);
   }
 
-  private Date getPreviousJobSuccess(String jobName) throws Exception {
+  private Date getPreviousJobSuccess( String jobName ) throws Exception {
 
     final NeoConnection connection = LoggingCore.getConnection( getTrans().getMetaStore(), getTrans() );
-    if (connection==null) {
-      throw new KettleException("Unable to find logging Neo4j connection (variable "+Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION+")");
+    if ( connection == null ) {
+      throw new KettleException( "Unable to find logging Neo4j connection (variable " + Defaults.VARIABLE_NEO4J_LOGGING_CONNECTION + ")" );
     }
 
-    Map<String, Object> parameters = new HashMap<>(  );
+    Map<String, Object> parameters = new HashMap<>();
     parameters.put( "type", "JOB" );
     parameters.put( "job", jobName );
     parameters.put( "status", Trans.STRING_FINISHED );
 
-    String cypher = "MATCH(e:Execution { type: {type}, name : {job}}) "
+    String cypher = "MATCH(e:Execution { type: $type, name : $job }) "
       + "WHERE e.errors = 0 "
-      + "  AND e.status = {status} "
+      + "  AND e.status = $status "
       + "RETURN e.name AS Name, e.executionStart AS startDate, e.errors AS errors, e.id AS id "
       + "ORDER BY startDate DESC "
       + "LIMIT 1 ";
 
-    StatementResult result = LoggingCore.executeCypher( log, connection, cypher, parameters );
-    return getResultDate(result, "startDate");
+    return getResultStartDate(log, connection, cypher, parameters);
   }
 
-  private Date getResultDate( StatementResult result, String startDate ) throws ParseException {
+  private Date getResultStartDate( LogChannelInterface log, NeoConnection connection, String cypher, Map<String, Object> parameters ) throws Exception {
+    return LoggingCore.executeCypher( log, connection, cypher, parameters, result -> {
+      try {
+        return getResultDate( result, "startDate" );
+      } catch ( ParseException e ) {
+        throw new RuntimeException( "Unable to get start date with cypher : "+cypher, e );
+      }
+    } );
+  }
+
+  private Date getResultDate( Result result, String startDate ) throws ParseException {
     // One row, get it
     //
-    if (result.hasNext()) {
+    if ( result.hasNext() ) {
       Record record = result.next();
       String string = record.get( "startDate" ).asString();// Dates in logging are in String formats
-      return new SimpleDateFormat("yyyy/MM/dd'T'HH:mm:ss").parse(string);
+      return new SimpleDateFormat( "yyyy/MM/dd'T'HH:mm:ss" ).parse( string );
     }
 
     return null;
